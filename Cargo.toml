@@ -2,6 +2,9 @@
 name = "brainf_ck"
 version = "0.1.0"
 authors = ["rail"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
+memmap2 = "0.5"
+dynasm = "1"
+dynasmrt = "1"
