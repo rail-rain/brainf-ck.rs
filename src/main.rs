@@ -1,12 +1,14 @@
 // TODO: do testing with http://www.brainfuck.org/tests.b.
 // unit test or integration test?
 
-mod jit_dynasm;
-mod jit_plain;
+mod jit;
 
-use std::{io::{self, Read, Write}, mem};
+use std::{
+    io::{self, Read, Write},
+    mem,
+};
 
-trait Consumer {
+pub(crate) trait Consumer {
     fn consume_while(&mut self, target: u8) -> usize;
 }
 
@@ -28,25 +30,16 @@ impl Consumer for std::slice::Iter<'_, u8> {
     }
 }
 
-pub extern "sysv64" fn putchar(char: u8) {
+#[inline(always)]
+pub(crate) fn putchar(char: u8) {
     io::stdout().write_all(&[char]).unwrap()
 }
 
-pub extern "sysv64" fn getchar() -> u8 {
+#[inline(always)]
+pub(crate) fn getchar() -> u8 {
     let mut buf = [0; 1];
     io::stdin().read_exact(&mut buf).unwrap();
     buf[0]
-}
-
-pub fn run(opcode: impl AsRef<[u8]>) {
-    inner(opcode.as_ref());
-    fn inner(opcode: &[u8]) {
-        // The safety depends on the correctness of the compilers. How dangerous.
-        let execute: extern "sysv64" fn(*mut u8) = unsafe { mem::transmute(opcode.as_ptr()) };
-        
-        let mut array = [0; 30_000];
-        execute(array.as_mut_ptr());
-    }
 }
 
 fn main() {
@@ -58,8 +51,10 @@ fn main() {
 
     let program = b"++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.";
 
-    // pretty_assertions::assert_eq!(&*jit_dynasm::compile(parse(program)), &*jit_plain::compile(parse(program)));
-    run(&*jit_dynasm::compile(program));
-    run(jit_plain::compile(program));
-
+    pretty_assertions::assert_eq!(
+        &*jit::dynasm::compile(program),
+        &*jit::plain::compile(program)
+    );
+    jit::run(&*jit::dynasm::compile(program));
+    jit::run(jit::plain::compile(program));
 }

@@ -1,8 +1,12 @@
-use crate::{getchar, putchar, Consumer as _};
+#![cfg(target_arch = "x86_64")]
+
+use crate::{
+    jit::{getchar, putchar},
+    Consumer as _,
+};
 use dynasm::dynasm;
 use dynasmrt::{DynasmApi, DynasmLabelApi, ExecutableBuffer};
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! my_dynasm {
     ($ops:ident $($t:tt)*) => {
         dynasm!($ops
