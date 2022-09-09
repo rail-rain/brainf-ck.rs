@@ -1,15 +1,6 @@
-use crate::parser::Ins;
-use std::{io, slice};
+use crate::{getchar, putchar, Consumer as _};
 
-fn write_u8(buf: &u8, to: &mut impl io::Write) -> io::Result<()> {
-    to.write_all(slice::from_ref(buf))
-}
-
-fn read_u8(buf: &mut u8, from: &mut impl io::Read) -> io::Result<()> {
-    from.read_exact(slice::from_mut(buf))
-}
-
-pub enum Op {
+enum Op {
     IncPtr { amount: usize },
     DecPtr { amount: usize },
     IncCell { amount: u8 },
@@ -20,41 +11,52 @@ pub enum Op {
     JmpBwd { to: usize },
 }
 
-fn compile(program: impl Iterator<Item = Ins>) -> Vec<Op> {
-    let mut buf = Vec::new();
+fn compile(program: &[u8]) -> Vec<Op> {
+    let mut operands = Vec::with_capacity(program.len() / 2);
     let mut loops = Vec::new();
 
-    for (pos, c) in program.enumerate() {
-
+    let mut iter = program.iter();
+    while let Some(&c) = iter.next() {
         let op = match c {
-            Ins::IncPtr { amount } => Op::IncPtr { amount },
-            Ins::DecPtr { amount } => Op::DecPtr { amount },
-            Ins::IncCell { amount } => Op::IncCell { amount },
-            Ins::DecCell { amount } => Op::DecCell { amount },
-            Ins::Output => Op::Output,
-            Ins::Input => Op::Input,
-            Ins::JmpFwd => {
-                loops.push(pos);
+            b'>' => Op::IncPtr {
+                amount: iter.consume_while(b'>') + 1,
+            },
+            b'<' => Op::DecPtr {
+                amount: iter.consume_while(b'<') + 1,
+            },
+            b'+' => Op::IncCell {
+                amount: iter.consume_while(b'+') as u8 + 1,
+            },
+            b'-' => Op::DecCell {
+                amount: iter.consume_while(b'-') as u8 + 1,
+            },
+            b'.' => Op::Output,
+            b',' => Op::Input,
+            b'[' => {
+                loops.push(operands.len());
                 Op::JmpFwd { to: 0 } // stub
             }
-            Ins::JmpBwd => {
-                let start_pos = loops.pop().unwrap();
-                buf[start_pos] = Op::JmpFwd { to: pos + 1 };
+            b']' => {
+                let start_pos = loops.pop().expect("unmatching ]");
+                operands[start_pos] = Op::JmpFwd {
+                    to: operands.len() + 1,
+                };
                 Op::JmpBwd { to: start_pos }
             }
+            _ => continue,
         };
 
-        buf.push(op);
+        if !loops.is_empty() {
+            todo!()
+        }
+
+        operands.push(op);
     }
 
-    buf
+    operands
 }
 
-pub fn run(
-    program: impl Iterator<Item = Ins>,
-    mut output: impl io::Write,
-    mut input: impl io::Read,
-) -> io::Result<()> {
+pub fn run(program: &[u8]) {
     let mut array = [0u8; 30_000];
     let mut pointer = 0;
 
@@ -67,10 +69,9 @@ pub fn run(
             Op::DecPtr { amount } => pointer -= amount,
             Op::IncCell { amount } => array[pointer] += amount,
             Op::DecCell { amount } => array[pointer] -= amount,
-            Op::Output => write_u8(&array[pointer], &mut output)?,
+            Op::Output => putchar(array[pointer]),
             Op::Input => {
-                output.flush()?;
-                read_u8(&mut array[pointer], &mut input)?;
+                array[pointer] = getchar();
             }
             Op::JmpFwd { to } => {
                 if array[pointer] == 0 {
@@ -85,19 +86,14 @@ pub fn run(
         }
         pos += 1;
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use std::io;
-    #[test]
-    fn hello_world() {
-        let program = b"++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.";
-        let mut output = Vec::with_capacity(13);
-        run(crate::parser::parse(program), &mut output, io::empty()).unwrap();
-        assert_eq!(output, b"Hello World!\n");
-    }
+    // #[test]
+    // fn hello_world() {
+    //     let program = b"++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.";
+    //     run(program);
+    //     assert_eq!(output, b"Hello World!\n");
+    // }
 }
