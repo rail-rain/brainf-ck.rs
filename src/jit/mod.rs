@@ -3,10 +3,16 @@ mod plain;
 
 use std::mem;
 
+// Currently, this is not handling panicking, and it's technically an UB.
+// Since brainf*ck has not way to handle exceptions, "sysv64-unwind" may be the best.
+// https://github.com/rust-lang/rust/issues/74990
 pub extern "sysv64" fn putchar(char: u8) {
     crate::putchar(char)
 }
 
+// Currently, this is not handling panicking, and it's technically an UB.
+// Since brainf*ck has not way to handle exceptions, "sysv64-unwind" may be the best.
+// https://github.com/rust-lang/rust/issues/74990
 pub extern "sysv64" fn getchar() -> u8 {
     crate::getchar()
 }

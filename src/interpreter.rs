@@ -46,11 +46,11 @@ fn compile(program: &[u8]) -> Vec<Op> {
             _ => continue,
         };
 
-        if !loops.is_empty() {
-            todo!()
-        }
-
         operands.push(op);
+    }
+
+    if !loops.is_empty() {
+        panic!("unmatched [")
     }
 
     operands
@@ -64,6 +64,7 @@ pub fn run(program: &[u8]) {
 
     let mut pos = 0;
     while let Some(c) = ops.get(pos) {
+        pos += 1;
         match c {
             Op::IncPtr { amount } => pointer += amount,
             Op::DecPtr { amount } => pointer -= amount,
@@ -84,16 +85,5 @@ pub fn run(program: &[u8]) {
                 }
             }
         }
-        pos += 1;
     }
-}
-
-#[cfg(test)]
-mod test {
-    // #[test]
-    // fn hello_world() {
-    //     let program = b"++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.";
-    //     run(program);
-    //     assert_eq!(output, b"Hello World!\n");
-    // }
 }
