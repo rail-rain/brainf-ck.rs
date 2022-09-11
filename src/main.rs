@@ -1,10 +1,17 @@
-// TODO: do testing with http://www.brainfuck.org/tests.b.
-// unit test or integration test?
+// TODO: Do some integration tests to make sure stdin/out works.
 
 mod interpreter;
 mod jit;
 
 use std::io::{self, Read, Write};
+use thiserror::Error;
+
+#[cfg(test)]
+use {
+    // Replace this with https://github.com/rust-lang/rust/issues/29594?
+    state::LocalStorage,
+    std::{cell::RefCell, collections::VecDeque},
+};
 
 pub(crate) trait Consumer {
     fn consume_while(&mut self, target: u8) -> usize;
@@ -28,93 +35,82 @@ impl Consumer for std::slice::Iter<'_, u8> {
     }
 }
 
-#[cfg(test)]
-use std::{cell::RefCell, collections::VecDeque};
-
-#[cfg(test)]
-thread_local! {
-    pub(crate) static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-
-    // Keep in mind when converting this to #[thread_local] attribute that
-    // `VecDequeue` or Curosr<Vec<u8>> fits better for `IN`, but their `new`s are not const.
-    // See https://github.com/rust-lang/rust/issues/99805 and 68990
-    // https://github.com/rust-lang/rust/issues/78812
-    pub(crate) static IN: RefCell<VecDeque<u8>> = RefCell::new(VecDeque::new());
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("unmatched [")]
+    UnmatchedLeft,
+    #[error("unmatched ]")]
+    UnmatchedRight,
 }
+
+#[cfg(test)]
+pub(crate) static OUT: LocalStorage<RefCell<Vec<u8>>> = LocalStorage::new();
+
+// Keep in mind when converting this to #[thread_local] attribute that
+// `VecDequeue` or Curosr<Vec<u8>> fits better for `IN`, but their `new`s are not const.
+// See https://github.com/rust-lang/rust/issues/99805 and 68990
+// https://github.com/rust-lang/rust/issues/78812
+#[cfg(test)]
+pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
 
 #[inline(always)]
 pub(crate) fn putchar(char: u8) {
     #[cfg(test)]
-    OUT.with(|out| out.borrow_mut().write_all(&[char]).unwrap());
-    // let mut writer = OUT.lock().unwrap();
+    let mut writer = OUT.get().borrow_mut();
     #[cfg(not(test))]
-    {
-        let mut writer = io::stdout();
-        writer.write_all(&[char]).unwrap();
-    }
+    let mut writer = io::stdout();
+    writer.write_all(&[char]).unwrap();
 }
 
 #[inline(always)]
 pub(crate) fn getchar() -> u8 {
-    // Use separate code as `Vec` doesn't implement `Read`.
     #[cfg(test)]
-    return IN.with(|r#in| {
-        // let mut r#in = IN.lock().unwrap();
-        r#in.borrow_mut().pop_front().unwrap_or(0)
-    });
+    let mut reader = IN.get().borrow_mut();
     #[cfg(not(test))]
-    {
-        let mut buf = [0; 1];
-        match io::stdin().read_exact(&mut buf) {
-            Ok(_) => {}
-            // TODO: Ideally, the cell stays the same when there's EOF.
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {}
-            // TODO: might be better to return io::Error?
-            r @ Err(_) => r.unwrap(),
-        };
-        buf[0]
-    }
+    let mut reader = io::stdin();
+
+    let mut buf = [0; 1];
+    match reader.read_exact(&mut buf) {
+        Ok(_) => {}
+        // TODO: Ideally, the cell stays the same when there's EOF.
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {}
+        // TODO: might be better to return io::Error?
+        r @ Err(_) => r.unwrap(),
+    };
+    buf[0]
 }
 
 fn main() {
-    // use std::io;
-
     // let mut buf = String::new();
     // io::stdin().read_line(&mut buf).unwrap();
     // interpreter::run(buf.as_bytes(), io::stdout(), io::stdin()).unwrap();
-    let program = b">,>+++++++++,>+++++++++++[<++++++<++++++<+>>>-]<<.>.<<-.>.>.<<.";
-    interpreter::run(program);
-
-    let program = b"++++[>++++++<-]>[>+++++>+++++++<<-]>>++++<[[>[[>>+<<-]<]>>>-]>-[>+>+<<-]>]\
-+++++[>+++++++<<++>-]>.<<.";
-
-    // pretty_assertions::assert_eq!(
-    //     &*jit::run_dynasm(program),
-    //     &*jit::run_plain(program)
-    // );
-    jit::run_dynasm(program);
-    jit::run_plain(program);
-    interpreter::run(program);
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    fn run_tests(test: fn(fn(&[u8]))) {
-        // thread_local! and dynasm does'nt go well.
-        // plain or Mutex works.
-        // eprintln!("running dynasm");
-        // test(jit::run_dynasm);
+    fn run_tests(test: fn(fn(&[u8]) -> Result<(), Error>)) {
+        OUT.set(|| RefCell::new(Vec::new()));
+        IN.set(|| RefCell::new(VecDeque::new()));
+        // For some reason, the result of other tests sneak in if I didn't do this.
+        OUT.get();
+        IN.get();
+
+        eprintln!("running dynasm");
+        test(jit::run_dynasm);
         clear();
+
         eprintln!("running plain");
         test(jit::run_plain);
         clear();
+
         eprintln!("running interpreter");
         test(interpreter::run);
+
         fn clear() {
-            IN.with(|i| i.borrow_mut().clear());
-            OUT.with(|o| o.borrow_mut().clear());
+            IN.get().borrow_mut().clear();
+            OUT.get().borrow_mut().clear();
         }
     }
 
@@ -139,10 +135,10 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8])) {
-            IN.with(|i| i.borrow_mut().write(b"\n").unwrap());
-            run(PROGRAM);
-            OUT.with(|o| assert_eq!(o.borrow_mut().as_slice(), b"LB\nLB\n"));
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            IN.get().borrow_mut().write(b"\n").unwrap();
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().as_slice(), b"LB\nLB\n");
         }
         run_tests(test);
     }
@@ -155,10 +151,9 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8])) {
-            run(PROGRAM);
-            // dbg!(std::str::from_utf8(OUT.lock().unwrap().as_slice()));
-            OUT.with(|o| assert_eq!(o.borrow_mut().as_slice(), b"#\n"));
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().as_slice(), b"#\n");
         }
         run_tests(test);
     }
@@ -197,26 +192,77 @@ mod test {
 
     #[test]
     fn obscure() {
-        const PROGRAM: &[u8] = br#"[]++++++++++[>>+>+>++++++[<<+<+++>>>-]<<<<-]"A*$";?@![#>>+<<]>[>>]<<<<[>++<[-]]>.>."#;
+        static PROGRAM: &[u8] = br#"[]++++++++++[>>+>+>++++++[<<+<+++>>>-]<<<<-]"A*$";?@![#>>+<<]>[>>]<<<<[>++<[-]]>.>."#;
         /* Tests for several obscure problems. Should output an H.
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8])) {
-            run(PROGRAM);
-            OUT.with(|o| assert_eq!(o.borrow().as_slice(), b"H\n"));
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().as_slice(), b"H\n");
         }
         run_tests(test);
     }
 
     #[test]
-    fn unmatching_bracket() {
-        const PROGRAM_LEFT: &[u8] = b"+++++[>+++++++>++<<-]>.>.[";
+    fn unmatching_bracket_left() {
+        static PROGRAM: &[u8] = b"+++++[>+++++++>++<<-]>.>.[";
         /* Should ideally give error message "unmatched [" or the like, and not give
-        any output. Not essential. */
+        any output. Not essential.
+        Daniel B Cristofani (cristofdathevanetdotcom)
+        http://www.hevanet.com/cristofd/brainfuck/ */
 
-        const PROGRAM_RIGHT: &[u8] = b"+++++[>+++++++>++<<-]>.>.][";
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
+            assert_eq!(OUT.get().borrow().as_slice(), b"");
+        }
+        run_tests(test);
+    }
+
+    #[test]
+    fn unmatching_bracket_right() {
+        static PROGRAM: &[u8] = b"+++++[>+++++++>++<<-]>.>.][";
         /* Should ideally give error message "unmatched ]" or the like, and not give
-        any output. Not essential. */
+        any output. Not essential.
+        Daniel B Cristofani (cristofdathevanetdotcom)
+        http://www.hevanet.com/cristofd/brainfuck/ */
+
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
+            assert_eq!(OUT.get().borrow().as_slice(), b"");
+        }
+        run_tests(test);
+    }
+
+    #[test]
+    fn rot13() {
+        const PROGRAM: &[u8] = include_bytes!("./rot13.b");
+        /* My pathological program rot13.b is good for testing the response to deep
+        brackets; the input "~mlk zyx" should produce the output "~zyx mlk".
+        Daniel B Cristofani (cristofdathevanetdotcom)
+        http://www.hevanet.com/cristofd/brainfuck/ */
+
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            IN.get().borrow_mut().write_all(b"~mlk zyx").unwrap();
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().as_slice(), b"~zyx mlk");
+        }
+        run_tests(test);
+    }
+
+    #[test]
+    fn numwarp() {
+        const PROGRAM: &[u8] = include_bytes!("./numwarp.b");
+        /* For an overall stress test, and also to check whether the output is
+        monospaced as it ideally should be, I would run numwarp.b.
+        Daniel B Cristofani (cristofdathevanetdotcom)
+        http://www.hevanet.com/cristofd/brainfuck/ */
+
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            IN.get().borrow_mut().write_all(b"128.42-(171)").unwrap();
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().as_slice(), include_bytes!("./numwarp.stdout"));
+        }
+        run_tests(test);
     }
 }

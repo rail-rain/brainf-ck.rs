@@ -2,7 +2,7 @@
 
 use crate::{
     jit::{getchar, putchar},
-    Consumer as _,
+    Consumer as _, Error,
 };
 use dynasm::dynasm;
 use dynasmrt::{DynasmApi, DynasmLabelApi, ExecutableBuffer};
@@ -17,7 +17,7 @@ macro_rules! my_dynasm {
     }
 }
 
-pub fn compile(program: &[u8]) -> ExecutableBuffer {
+pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     let mut ops = dynasmrt::x64::Assembler::new().unwrap();
 
     my_dynasm!(ops
@@ -58,16 +58,19 @@ pub fn compile(program: &[u8]) -> ExecutableBuffer {
                 )
             }
             b']' => {
-                if let Some((bwd_label, fwd_label)) = loops.pop() {
-                    my_dynasm!(ops
-                        ; cmp BYTE [pointer], 0
-                        ; jne =>bwd_label
-                        ;=>fwd_label
-                    )
-                }
+                let (bwd_label, fwd_label) = loops.pop().ok_or(Error::UnmatchedRight)?;
+                my_dynasm!(ops
+                    ; cmp BYTE [pointer], 0
+                    ; jne =>bwd_label
+                    ;=>fwd_label
+                )
             }
             _ => {}
         }
+    }
+
+    if !loops.is_empty() {
+        return Err(Error::UnmatchedLeft);
     }
 
     my_dynasm!(ops
@@ -78,5 +81,5 @@ pub fn compile(program: &[u8]) -> ExecutableBuffer {
         ; ret
     );
 
-    ops.finalize().unwrap()
+    Ok(ops.finalize().unwrap())
 }

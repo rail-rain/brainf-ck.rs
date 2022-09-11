@@ -8,4 +8,5 @@ edition = "2021"
 memmap2 = "0.5"
 dynasm = "1"
 dynasmrt = "1"
-pretty_assertions = "1.3.0"
+state = { version = "0.5.3", features = ["tls"] }
+thiserror = "1.0.34"

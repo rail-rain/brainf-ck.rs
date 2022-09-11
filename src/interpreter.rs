@@ -1,4 +1,4 @@
-use crate::{getchar, putchar, Consumer as _};
+use crate::{getchar, putchar, Consumer as _, Error};
 
 enum Op {
     IncPtr { amount: usize },
@@ -11,7 +11,7 @@ enum Op {
     JmpBwd { to: usize },
 }
 
-fn compile(program: &[u8]) -> Vec<Op> {
+fn compile(program: &[u8]) -> Result<Vec<Op>, Error> {
     let mut operands = Vec::with_capacity(program.len() / 2);
     let mut loops = Vec::new();
 
@@ -37,7 +37,7 @@ fn compile(program: &[u8]) -> Vec<Op> {
                 Op::JmpFwd { to: 0 } // stub
             }
             b']' => {
-                let start_pos = loops.pop().expect("unmatching ]");
+                let start_pos = loops.pop().ok_or(Error::UnmatchedRight)?;
                 operands[start_pos] = Op::JmpFwd {
                     to: operands.len() + 1,
                 };
@@ -49,18 +49,18 @@ fn compile(program: &[u8]) -> Vec<Op> {
         operands.push(op);
     }
 
-    if !loops.is_empty() {
-        panic!("unmatched [")
+    if loops.is_empty() {
+        Ok(operands)
+    } else {
+        Err(Error::UnmatchedLeft)
     }
-
-    operands
 }
 
-pub fn run(program: &[u8]) {
+pub fn run(program: &[u8]) -> Result<(), Error> {
     let mut array = [0u8; 30_000];
     let mut pointer = 0;
 
-    let ops = compile(program);
+    let ops = compile(program)?;
 
     let mut pos = 0;
     while let Some(c) = ops.get(pos) {
@@ -86,4 +86,6 @@ pub fn run(program: &[u8]) {
             }
         }
     }
+
+    Ok(())
 }

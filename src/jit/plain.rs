@@ -2,7 +2,7 @@
 
 use crate::{
     jit::{getchar, putchar},
-    Consumer as _,
+    Consumer as _, Error,
 };
 use memmap2::{Mmap, MmapMut};
 use std::mem;
@@ -22,7 +22,7 @@ impl SliceExt for &mut [u8] {
     }
 }
 
-pub fn compile(program: &[u8]) -> Mmap {
+pub fn compile(program: &[u8]) -> Result<Mmap, Error> {
     // Although the length of `program` include comments, it is still a good indicator.
     let mut writer = Vec::with_capacity(program.len());
     let mut loops = Vec::new();
@@ -125,31 +125,28 @@ pub fn compile(program: &[u8]) -> Mmap {
                 loops.push(fwd_label_dst);
             }
             b']' => {
-                if let Some(fwd_label_dst) = loops.pop() {
-                    writer.extend_from_slice(&[
-                        0x80,
-                        0b00_111_011,
-                        0, // cmp BYTE [rbx], 0
-                        0x0f,
-                        0x85, // jne
-                    ]);
-                    // je and jne use relative locations to jump
-                    // Subtract the start of the backward label location from
-                    // the start of the forward label location to get the difference.
-                    let bwd_label = fwd_label_dst.start as i32 - writer.len() as i32;
-                    writer.extend_from_slice(&bwd_label.to_ne_bytes());
-                    let fwd_label = -bwd_label;
-                    writer[fwd_label_dst].copy_from_slice(&fwd_label.to_ne_bytes());
-                } else {
-                    panic!("error: unmatching bracket ]");
-                }
+                let fwd_label_dst = loops.pop().ok_or(Error::UnmatchedRight)?;
+                writer.extend_from_slice(&[
+                    0x80,
+                    0b00_111_011,
+                    0, // cmp BYTE [rbx], 0
+                    0x0f,
+                    0x85, // jne
+                ]);
+                // je and jne use relative locations to jump
+                // Subtract the start of the backward label location from
+                // the start of the forward label location to get the difference.
+                let bwd_label = fwd_label_dst.start as i32 - writer.len() as i32;
+                writer.extend_from_slice(&bwd_label.to_ne_bytes());
+                let fwd_label = -bwd_label;
+                writer[fwd_label_dst].copy_from_slice(&fwd_label.to_ne_bytes());
             }
             _ => {}
         }
     }
 
     if !loops.is_empty() {
-        panic!("error: unmatching bracket [");
+        return Err(Error::UnmatchedLeft);
     }
 
     // Write sysv64's postlude.
@@ -167,5 +164,5 @@ pub fn compile(program: &[u8]) -> Mmap {
     // The use of `mmap` is neccessary as POSIX defines `mprotect` only for `mmap`.
     let mut opcode = MmapMut::map_anon(writer.len()).unwrap();
     opcode.copy_from_slice(&writer);
-    opcode.make_exec().unwrap()
+    Ok(opcode.make_exec().unwrap())
 }
