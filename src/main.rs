@@ -55,15 +55,19 @@ pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
 
 #[inline(always)]
 pub(crate) fn putchar(char: u8) {
+    // TODO: Handle line feed and carrige return according to Epistle
     #[cfg(test)]
     let mut writer = OUT.get().borrow_mut();
     #[cfg(not(test))]
     let mut writer = io::stdout();
     writer.write_all(&[char]).unwrap();
+    #[cfg(not(test))]
+    writer.flush().unwrap();
 }
 
 #[inline(always)]
 pub(crate) fn getchar() -> u8 {
+    // TODO: Handle line feed and carrige return according to Epistle
     #[cfg(test)]
     let mut reader = IN.get().borrow_mut();
     #[cfg(not(test))]
@@ -81,6 +85,10 @@ pub(crate) fn getchar() -> u8 {
 }
 
 fn main() {
+    static START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
+    static END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
+    jit::run_dynasm(END);
+    // interpreter::run(START);
     // let mut buf = String::new();
     // io::stdin().read_line(&mut buf).unwrap();
     // interpreter::run(buf.as_bytes(), io::stdout(), io::stdin()).unwrap();
@@ -88,14 +96,16 @@ fn main() {
 
 #[cfg(test)]
 mod test {
+    // The tests under this mod is adapted from http://brainfuck.org/tests.b one by one.
+    // Credit goes to Daniel B Cristofani (cristofdathevanetdotcom).
     use super::*;
 
     fn run_tests(test: fn(fn(&[u8]) -> Result<(), Error>)) {
         OUT.set(|| RefCell::new(Vec::new()));
         IN.set(|| RefCell::new(VecDeque::new()));
         // For some reason, the result of other tests sneak in if I didn't do this.
-        OUT.get();
-        IN.get();
+        // The confusing thing is that just calling `.get()` on them sometimes work.
+        clear();
 
         eprintln!("running dynasm");
         test(jit::run_dynasm);
@@ -146,9 +156,9 @@ mod test {
     #[test]
     fn array_size() {
         static PROGRAM: &[u8] = b"++++[>++++++<-]>[>+++++>+++++++<<-]>>++++<[[>[[>>+<<-]<]>>>-]>-[>+>+<<-]>]+++++[>+++++++<<++>-]>.<<.";
-        /* Goes to cell 30000 and reports from there with a #. (Verifies that the
+        /* "Goes to cell 30000 and reports from there with a #. (Verifies that the
         array is big enough.)
-        Daniel B Cristofani (cristofdathevanetdotcom)
+        Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
         fn test(run: fn(&[u8]) -> Result<(), Error>) {
@@ -158,43 +168,60 @@ mod test {
         run_tests(test);
     }
 
-    // #[test]
-    // fn bound_check() {
-    //     /* These next two test the array bounds checking. Bounds checking is not
-    //     essential, and in a high-level implementation it is likely to introduce
-    //     extra overhead. In a low-level implementation you can get bounds checking
-    //     for free by using the OS's own memory protections; this is the best
-    //     solution, which may require making the array size a multiple of the page
-    //     size.
-    //     Anyway. These two programs measure the "real" size of the array, in some
-    //     sense, in cells left and right of the initial cell respectively. They
-    //     output the result in unary; the easiest thing is to direct them to a file
-    //     and measure its size, or (on Unix) pipe the output to wc. If bounds
-    //     checking is present and working, the left should measure 0 and the right
-    //     should be the array size minus one.
-    //     Daniel B Cristofani (cristofdathevanetdotcom)
-    //     http://www.hevanet.com/cristofd/brainfuck/ */
-    //     let start = b"+[<+++++++++++++++++++++++++++++++++.]";
-    //     let end = b"+[>+++++++++++++++++++++++++++++++++.]";
+    #[test]
+    fn bound_check() {
+        /* "These next two test the array bounds checking. Bounds checking is not
+        essential, and in a high-level implementation it is likely to introduce
+        extra overhead. In a low-level implementation you can get bounds checking
+        for free by using the OS's own memory protections; this is the best
+        solution, which may require making the array size a multiple of the page
+        size.
+        Anyway. These two programs measure the "real" size of the array, in some
+        sense, in cells left and right of the initial cell respectively. They
+        output the result in unary; the easiest thing is to direct them to a file
+        and measure its size, or (on Unix) pipe the output to wc. If bounds
+        checking is present and working, the left should measure 0 and the right
+        should be the array size minus one.
+        Daniel B Cristofani (cristofdathevanetdotcom)"
+        http://www.hevanet.com/cristofd/brainfuck/ */
+        static START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
+        static END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
 
-    //     let test = |run: fn(&[u8])| {
-    //         run(start);
-    //         assert_eq!(OUT.lock().unwrap().as_slice(), b"");
-    //     };
-    //     run_tests(test);
+        fn test_start(run: fn(&[u8]) -> Result<(), Error>) {
+            run(START).unwrap();
+            dbg!(OUT.get().borrow());
+            assert_eq!(OUT.get().borrow().len(), 0);
+        }
+        // Only interpreter passes this test. Running jits with this cause the entire test suite to crash.
+        // The behaviour in this situation is probably undefined, the current one is kind of OK.
+        //
+        // TODO: implement memory isolation because otherwise it causes UB.
+        //
+        // Address masking seems good but I have to control virtual address to give Brainfck code
+        // https://www.cse.psu.edu/~gxt29/papers/sfi-final.pdf
+        //
+        // https://hacks.mozilla.org/2021/12/webassembly-and-back-again-fine-grained-sandboxing-in-firefox-95/
+        // According to the documentation, Wasmtime has both guard page and bound checking.
+        // guard page is made using PROT_NONE.
+        // https://github.com/bytecodealliance/wasmtime/tree/main/crates/
+        // Wasmtime puts enough guard pages so that 32-bit wasm cannot access outside of it.
+        // Index the tape everytime and make sure the index variable is 32 or 16 bit to fit within the guard page.
+        test_start(interpreter::run);
+        // run_tests(test_start);
 
-    //     let test = |run: fn(&[u8])| {
-    //         run(end);
-    //         assert_eq!(OUT.lock().unwrap().as_slice().len(), 30_000 - 1);
-    //     };
-    //     run_tests(test);
-    // }
+        fn test_end(run: fn(&[u8]) -> Result<(), Error>) {
+            run(END).unwrap();
+            assert_eq!(OUT.get().borrow().len(), 30_000 - 1);
+        }
+        test_end(interpreter::run);
+        // run_tests(test_end);
+    }
 
     #[test]
     fn obscure() {
         static PROGRAM: &[u8] = br#"[]++++++++++[>>+>+>++++++[<<+<+++>>>-]<<<<-]"A*$";?@![#>>+<<]>[>>]<<<<[>++<[-]]>.>."#;
-        /* Tests for several obscure problems. Should output an H.
-        Daniel B Cristofani (cristofdathevanetdotcom)
+        /* "Tests for several obscure problems. Should output an H.
+        Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
         fn test(run: fn(&[u8]) -> Result<(), Error>) {
@@ -207,8 +234,8 @@ mod test {
     #[test]
     fn unmatching_bracket_left() {
         static PROGRAM: &[u8] = b"+++++[>+++++++>++<<-]>.>.[";
-        /* Should ideally give error message "unmatched [" or the like, and not give
-        any output. Not essential.
+        /* "Should ideally give error message "unmatched [" or the like, and not give
+        any output. Not essential."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
@@ -222,8 +249,8 @@ mod test {
     #[test]
     fn unmatching_bracket_right() {
         static PROGRAM: &[u8] = b"+++++[>+++++++>++<<-]>.>.][";
-        /* Should ideally give error message "unmatched ]" or the like, and not give
-        any output. Not essential.
+        /* "Should ideally give error message "unmatched ]" or the like, and not give
+        any output. Not essential."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
@@ -236,9 +263,9 @@ mod test {
 
     #[test]
     fn rot13() {
-        const PROGRAM: &[u8] = include_bytes!("./rot13.b");
-        /* My pathological program rot13.b is good for testing the response to deep
-        brackets; the input "~mlk zyx" should produce the output "~zyx mlk".
+        static PROGRAM: &[u8] = include_bytes!("./rot13.b");
+        /* "My pathological program rot13.b is good for testing the response to deep
+        brackets; the input "~mlk zyx" should produce the output "~zyx mlk"."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
@@ -252,16 +279,19 @@ mod test {
 
     #[test]
     fn numwarp() {
-        const PROGRAM: &[u8] = include_bytes!("./numwarp.b");
-        /* For an overall stress test, and also to check whether the output is
-        monospaced as it ideally should be, I would run numwarp.b.
+        static PROGRAM: &[u8] = include_bytes!("./numwarp.b");
+        /* "For an overall stress test, and also to check whether the output is
+        monospaced as it ideally should be, I would run numwarp.b."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
         fn test(run: fn(&[u8]) -> Result<(), Error>) {
             IN.get().borrow_mut().write_all(b"128.42-(171)").unwrap();
             run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().as_slice(), include_bytes!("./numwarp.stdout"));
+            assert_eq!(
+                OUT.get().borrow().as_slice(),
+                include_bytes!("./numwarp.stdout")
+            );
         }
         run_tests(test);
     }
