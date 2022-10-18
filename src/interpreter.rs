@@ -1,6 +1,6 @@
 use crate::{getchar, putchar, Consumer as _, Error};
 
-enum Op {
+enum Ins {
     IncPtr { amount: usize },
     DecPtr { amount: usize },
     IncCell { amount: u8 },
@@ -11,46 +11,46 @@ enum Op {
     JmpBwd { to: usize },
 }
 
-fn compile(program: &[u8]) -> Result<Vec<Op>, Error> {
-    let mut operands = Vec::with_capacity(program.len() / 2);
+fn compile(program: &[u8]) -> Result<Vec<Ins>, Error> {
+    let mut instructions = Vec::with_capacity(program.len() / 2);
     let mut loops = Vec::new();
 
     let mut iter = program.iter();
     while let Some(&c) = iter.next() {
-        let op = match c {
-            b'>' => Op::IncPtr {
+        let ins = match c {
+            b'>' => Ins::IncPtr {
                 amount: iter.consume_while(b'>') + 1,
             },
-            b'<' => Op::DecPtr {
+            b'<' => Ins::DecPtr {
                 amount: iter.consume_while(b'<') + 1,
             },
-            b'+' => Op::IncCell {
+            b'+' => Ins::IncCell {
                 amount: iter.consume_while(b'+') as u8 + 1,
             },
-            b'-' => Op::DecCell {
+            b'-' => Ins::DecCell {
                 amount: iter.consume_while(b'-') as u8 + 1,
             },
-            b'.' => Op::Output,
-            b',' => Op::Input,
+            b'.' => Ins::Output,
+            b',' => Ins::Input,
             b'[' => {
-                loops.push(operands.len());
-                Op::JmpFwd { to: 0 } // stub
+                loops.push(instructions.len());
+                Ins::JmpFwd { to: 0 } // stub
             }
             b']' => {
                 let start_pos = loops.pop().ok_or(Error::UnmatchedRight)?;
-                operands[start_pos] = Op::JmpFwd {
-                    to: operands.len() + 1,
+                instructions[start_pos] = Ins::JmpFwd {
+                    to: instructions.len() + 1,
                 };
-                Op::JmpBwd { to: start_pos }
+                Ins::JmpBwd { to: start_pos }
             }
             _ => continue,
         };
 
-        operands.push(op);
+        instructions.push(ins);
     }
 
     if loops.is_empty() {
-        Ok(operands)
+        Ok(instructions)
     } else {
         Err(Error::UnmatchedLeft)
     }
@@ -58,28 +58,38 @@ fn compile(program: &[u8]) -> Result<Vec<Op>, Error> {
 
 pub fn run(program: &[u8]) -> Result<(), Error> {
     let mut array = [0u8; 30_000];
-    let mut pointer = 0;
+    let mut pointer = 0usize;
 
-    let ops = compile(program)?;
+    let instructions = compile(program)?;
 
     let mut pos = 0;
-    while let Some(c) = ops.get(pos) {
+    while let Some(i) = instructions.get(pos) {
         pos += 1;
-        match c {
-            Op::IncPtr { amount } => pointer += amount,
-            Op::DecPtr { amount } => pointer -= amount,
-            Op::IncCell { amount } => array[pointer] += amount,
-            Op::DecCell { amount } => array[pointer] -= amount,
-            Op::Output => putchar(array[pointer]),
-            Op::Input => {
+        match i {
+            Ins::IncPtr { amount } => if pointer + amount < array.len() {
+                pointer += amount;
+            } else {
+                // TODO: Return more nuanced error?
+                return Ok(());
+            },
+            Ins::DecPtr { amount } => if let Some(n) = pointer.checked_sub(*amount) {
+                pointer = n
+            } else {
+                // TODO: Return more nuanced error?
+                return Ok(());
+            },
+            Ins::IncCell { amount } => array[pointer] = array[pointer].overflowing_add(*amount).0,
+            Ins::DecCell { amount } => array[pointer] = array[pointer].overflowing_sub(*amount).0,
+            Ins::Output => putchar(array[pointer]),
+            Ins::Input => {
                 array[pointer] = getchar();
             }
-            Op::JmpFwd { to } => {
+            Ins::JmpFwd { to } => {
                 if array[pointer] == 0 {
                     pos = *to;
                 }
             }
-            Op::JmpBwd { to } => {
+            Ins::JmpBwd { to } => {
                 if array[pointer] != 0 {
                     pos = *to;
                 }
