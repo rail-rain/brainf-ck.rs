@@ -25,7 +25,9 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
         ; mov rbp, rsp
 
         ; push pointer
+        ; push r12
         ; mov pointer, rdi
+        ; xor r12, r12 // Set the array index to 0
     );
 
     let mut loops = Vec::new();
@@ -33,26 +35,35 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     let mut iter = program.iter();
     while let Some(&c) = iter.next() {
         match c {
-            b'>' => my_dynasm!(ops; add pointer, (iter.consume_while(b'>') + 1) as _),
-            b'<' => my_dynasm!(ops; sub pointer, (iter.consume_while(b'<') + 1) as _),
-            b'+' => my_dynasm!(ops; add BYTE [pointer], (iter.consume_while(b'+') + 1) as _),
-            b'-' => my_dynasm!(ops; sub BYTE [pointer], (iter.consume_while(b'-') + 1) as _),
+            b'>' => my_dynasm!(ops
+                ; add r12d, (iter.consume_while(b'>') + 1) as _
+                // Make sure the index stays within 16 bit values for memory protection.
+                // Use zero-extension instead of writing directly to 16 bit register
+                // See https://stackoverflow.com/questions/34058101/referencing-the-contents-of-a-memory-location-x86-addressing-modes
+                ; movzx r12d, r12w
+            ),
+            b'<' => my_dynasm!(ops
+                ; sub r12d, (iter.consume_while(b'<') + 1) as _
+                ; movzx r12d, r12w
+            ),
+            b'+' => my_dynasm!(ops; add BYTE [pointer + r12], (iter.consume_while(b'+') + 1) as _),
+            b'-' => my_dynasm!(ops; sub BYTE [pointer + r12], (iter.consume_while(b'-') + 1) as _),
             b'.' => my_dynasm!(ops
-                ; mov rdi, [pointer]
+                ; lea rdi, [pointer + r12]
                 ; mov rax, QWORD putchar as _
                 ; call rax
             ),
             b',' => my_dynasm!(ops
+                ; lea rdi, [pointer + r12]
                 ; mov rax, QWORD getchar as _
                 ; call rax
-                ; mov [pointer], rax
             ),
             b'[' => {
                 let bwd_label = ops.new_dynamic_label();
                 let fwd_label = ops.new_dynamic_label();
                 loops.push((bwd_label, fwd_label));
                 my_dynasm!(ops
-                    ; cmp BYTE [pointer], 0
+                    ; cmp BYTE [pointer + r12], 0
                     ; je =>fwd_label
                     ;=>bwd_label
                 )
@@ -60,7 +71,7 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
             b']' => {
                 let (bwd_label, fwd_label) = loops.pop().ok_or(Error::UnmatchedRight)?;
                 my_dynasm!(ops
-                    ; cmp BYTE [pointer], 0
+                    ; cmp BYTE [pointer + r12], 0
                     ; jne =>bwd_label
                     ;=>fwd_label
                 )
@@ -74,6 +85,7 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     }
 
     my_dynasm!(ops
+        ; pop r12
         ; pop pointer
 
         ; mov rsp, rbp

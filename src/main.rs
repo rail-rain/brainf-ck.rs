@@ -1,17 +1,14 @@
+#![warn(unsafe_op_in_unsafe_fn)]
 // TODO: Do some integration tests to make sure stdin/out works.
 
 mod interpreter;
 mod jit;
 
-use std::io::{self, Read, Write};
-use thiserror::Error;
-
-#[cfg(test)]
-use {
-    // Replace this with https://github.com/rust-lang/rust/issues/29594?
-    state::LocalStorage,
-    std::{cell::RefCell, collections::VecDeque},
+use std::{
+    array,
+    io::{self, Read, Write},
 };
+use thiserror::Error;
 
 pub(crate) trait Consumer {
     fn consume_while(&mut self, target: u8) -> usize;
@@ -43,45 +40,36 @@ pub enum Error {
     UnmatchedRight,
 }
 
-#[cfg(test)]
-pub(crate) static OUT: LocalStorage<RefCell<Vec<u8>>> = LocalStorage::new();
-
-// Keep in mind when converting this to #[thread_local] attribute that
-// `VecDequeue` or Curosr<Vec<u8>> fits better for `IN`, but their `new`s are not const.
-// See https://github.com/rust-lang/rust/issues/99805 and 68990
-// https://github.com/rust-lang/rust/issues/78812
-#[cfg(test)]
-pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
-
 #[inline(always)]
-pub(crate) fn putchar(char: u8) {
+pub(crate) fn putchar(byte: &u8) {
     // TODO: Handle line feed and carrige return according to Epistle
     #[cfg(test)]
-    let mut writer = OUT.get().borrow_mut();
+    let mut writer = test::OUT.get().borrow_mut();
     #[cfg(not(test))]
     let mut writer = io::stdout();
-    writer.write_all(&[char]).unwrap();
+
+    writer.write_all(array::from_ref(byte)).unwrap();
+
     #[cfg(not(test))]
     writer.flush().unwrap();
 }
 
 #[inline(always)]
-pub(crate) fn getchar() -> u8 {
+pub(crate) fn getchar(byte: &mut u8) {
     // TODO: Handle line feed and carrige return according to Epistle
     #[cfg(test)]
-    let mut reader = IN.get().borrow_mut();
+    let mut reader = test::IN.get().borrow_mut();
     #[cfg(not(test))]
     let mut reader = io::stdin();
 
-    let mut buf = [0; 1];
-    match reader.read_exact(&mut buf) {
+    match reader.read_exact(array::from_mut(byte)) {
         Ok(_) => {}
-        // TODO: Ideally, the cell stays the same when there's EOF.
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {}
+        // The value of `buf` is "unspecified" when `UnexpectedEof` happens,
+        // Make sure it is 0 to be consistent.
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => *byte = 0,
         // TODO: might be better to return io::Error?
         r @ Err(_) => r.unwrap(),
     };
-    buf[0]
 }
 
 fn main() {
@@ -99,11 +87,25 @@ mod test {
     // The tests under this mod is adapted from http://brainfuck.org/tests.b one by one.
     // Credit goes to Daniel B Cristofani (cristofdathevanetdotcom).
     use super::*;
+    use {
+        // TODO: Replace this with https://github.com/rust-lang/rust/issues/29594?
+        state::LocalStorage,
+        std::{cell::RefCell, collections::VecDeque},
+    };
+
+    pub(crate) static OUT: LocalStorage<RefCell<Vec<u8>>> = LocalStorage::new();
+
+    // Keep in mind when converting this to #[thread_local] attribute that
+    // `VecDequeue` or Curosr<Vec<u8>> fits better for `IN`, but their `new`s are not const.
+    // See https://github.com/rust-lang/rust/issues/99805 and 68990
+    // https://github.com/rust-lang/rust/issues/78812
+    pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
 
     fn run_tests(test: fn(fn(&[u8]) -> Result<(), Error>)) {
         OUT.set(|| RefCell::new(Vec::new()));
         IN.set(|| RefCell::new(VecDeque::new()));
         // For some reason, the result of other tests sneak in if I didn't do this.
+        // That's probably because Rust's test system re-uses threads.
         // The confusing thing is that just calling `.get()` on them sometimes work.
         clear();
 
@@ -111,9 +113,9 @@ mod test {
         test(jit::run_dynasm);
         clear();
 
-        eprintln!("running plain");
-        test(jit::run_plain);
-        clear();
+        // eprintln!("running plain");
+        // test(jit::run_plain);
+        // clear();
 
         eprintln!("running interpreter");
         test(interpreter::run);
