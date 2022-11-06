@@ -101,3 +101,64 @@ mod mmap {
 }
 
 use mmap::MmapWithGuard;
+
+// https://github.com/bytecodealliance/wasmtime/issues/15
+// https://github.com/bytecodealliance/wasmtime/blob/main/crates/runtime/src/helpers.c#L59
+// https://github.com/bytecodealliance/wasmtime/blob/main/crates/runtime/src/traphandlers/unix.rs
+// https://github.com/bytecodealliance/wasmtime/blob/main/crates/runtime/src/traphandlers.rs
+// mod trap {
+//     use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGSEGV, Signal};
+//     use std::{
+//         ffi,
+//         sync::atomic::{AtomicBool, Ordering, AtomicPtr},
+//     };
+//     use once_cell::race::OnceBox;
+
+//     extern "C" {
+//         fn setjmp() -> *const u8;
+//         fn longjmp(jmp_buf: *const u8) -> !;
+//     }
+
+//     // We don't do multi threading.
+//     static IS_JIT: AtomicBool = AtomicBool::new(false);
+//     static JMP_BUF: AtomicPtr<u8> = AtomicPtr::new(std::ptr::null_mut());
+//     static PREV_ACTION: OnceBox<SigAction> = OnceBox::new();
+
+//     /// ## Safety
+//     /// We may pass `PREV_ACTION` to `sigaction`. The handler must be async-signal-safe.
+//     extern "C" fn trap_handler(signal: ffi::c_int, siginfo: *mut libc::siginfo_t, context: *mut ffi::c_void) {
+//         if IS_JIT.load(Ordering::Acquire) {
+//             IS_JIT.store(false, Ordering::Release);
+//             // TODO: Care MacOS?
+//             unsafe { longjmp(JMP_BUF.load(Ordering::Acquire)) };
+//         } else {
+//             let Some(prev_action) = PREV_ACTION.get() else { unreachable!() };
+//             match prev_action.handler() {
+//                 SigHandler::Handler(h) => (h)(signal),
+//                 SigHandler::SigAction(a) => (a)(signal, siginfo, context),
+//                 SigHandler::SigDfl | SigHandler::SigIgn => {
+//                     unsafe { sigaction(signal.try_into().unwrap(), prev_action) }.unwrap();
+//                 },
+//             }
+//         }
+//     }
+
+//     pub fn register_trap_handler() -> nix::Result<()> {
+//         let action = SigAction::new(
+//             SigHandler::SigAction(trap_handler),
+//             SaFlags::SA_ONSTACK | SaFlags::SA_NODEFER,
+//             SigSet::empty(),
+//         );
+//         // TODO: do SIGBUS too for some platform
+//         let prev_action = unsafe { sigaction(SIGSEGV, &action) }?;
+//         PREV_ACTION.set(Box::new(prev_action)).unwrap();
+//         Ok(())
+//     }
+
+//     pub fn catch_trap(execute: impl Fn()) {
+//         // setjmp
+//         IS_JIT.store(true, Ordering::Release);
+//         execute();
+//         IS_JIT.store(false, Ordering::Release);
+//     }
+// }
