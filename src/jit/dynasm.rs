@@ -28,6 +28,7 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
         ; push r12
         ; mov pointer, rdi
         ; xor r12, r12 // Set the array index to 0
+        ; mov rax, 1 // Set the initial return value to 1 in case no io happens.
     );
 
     let mut loops = Vec::new();
@@ -52,11 +53,15 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
                 ; lea rdi, [pointer + r12]
                 ; mov rax, QWORD putchar as _
                 ; call rax
+                ; cmp al, 0
+                ; jz ->throwing
             ),
             b',' => my_dynasm!(ops
                 ; lea rdi, [pointer + r12]
                 ; mov rax, QWORD getchar as _
                 ; call rax
+                ; cmp al, 0
+                ; jz ->throwing
             ),
             b'[' => {
                 let bwd_label = ops.new_dynamic_label();
@@ -64,7 +69,7 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
                 loops.push((bwd_label, fwd_label));
                 my_dynasm!(ops
                     ; cmp BYTE [pointer + r12], 0
-                    ; je =>fwd_label
+                    ; jz =>fwd_label
                     ;=>bwd_label
                 )
             }
@@ -72,7 +77,7 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
                 let (bwd_label, fwd_label) = loops.pop().ok_or(Error::UnmatchedRight)?;
                 my_dynasm!(ops
                     ; cmp BYTE [pointer + r12], 0
-                    ; jne =>bwd_label
+                    ; jnz =>bwd_label
                     ;=>fwd_label
                 )
             }
@@ -85,6 +90,8 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     }
 
     my_dynasm!(ops
+        // Keep `rax` set by `putchar` and `getchar` functions as it is for the return value.
+        ;->throwing:
         ; pop r12
         ; pop pointer
 

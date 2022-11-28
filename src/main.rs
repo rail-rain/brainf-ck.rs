@@ -22,7 +22,7 @@ impl Consumer for std::slice::Iter<'_, u8> {
         while clone.next().copied() == Some(target) {}
         let span = (self.len() - clone.len()).saturating_sub(1);
 
-        // TODO: unstable `Iterator::advance_by` is better.
+        // FIXME: unstable `Iterator::advance_by` is better.
         // Need https://github.com/rust-lang/rust/issues/77404
         if span != 0 {
             self.nth(span - 1);
@@ -38,44 +38,57 @@ pub enum Error {
     UnmatchedLeft,
     #[error("unmatched ]")]
     UnmatchedRight,
+    #[error("io-error during execution")]
+    Io(#[from] io::Error),
 }
 
 #[inline(always)]
-pub(crate) fn putchar(byte: &u8) {
-    // TODO: Handle line feed and carrige return according to Epistle
+pub(crate) fn putchar(byte: &u8) -> io::Result<()> {
     #[cfg(test)]
     let mut writer = test::OUT.get().borrow_mut();
+    // FIXME: use raw stdin? I don't need line-buffering here.
+    // See https://github.com/rust-lang/rust/issues/58326
     #[cfg(not(test))]
     let mut writer = io::stdout();
 
-    writer.write_all(array::from_ref(byte)).unwrap();
+    if cfg!(windows) && *byte == b'\n' {
+        writer.write_all(&[b'\r', b'\n'])?;
+    } else {
+        writer.write_all(array::from_ref(byte))?;
+    }
 
     #[cfg(not(test))]
-    writer.flush().unwrap();
+    writer.flush()?;
+
+    Ok(())
 }
 
 #[inline(always)]
-pub(crate) fn getchar(byte: &mut u8) {
-    // TODO: Handle line feed and carrige return according to Epistle
+pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
     #[cfg(test)]
     let mut reader = test::IN.get().borrow_mut();
     #[cfg(not(test))]
     let mut reader = io::stdin();
 
     match reader.read_exact(array::from_mut(byte)) {
-        Ok(_) => {}
+        Ok(_) => if cfg!(windows) && *byte == b'\r' {
+            // We're assuming there's '\n' after '\r'. Even if there isn't, this skips '\r'.
+            // Also, we call `UnexpectedEof` an error too. Basically, anything other than "\r\n" is unexpected.
+            reader.read_exact(array::from_mut(byte))?;
+        }
         // The value of `buf` is "unspecified" when `UnexpectedEof` happens,
         // Make sure it is 0 to be consistent.
         Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => *byte = 0,
-        // TODO: might be better to return io::Error?
-        r @ Err(_) => r.unwrap(),
+        r @ Err(_) => return r,
     };
+
+    Ok(())
 }
 
 fn main() {
     static START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
     static END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
-    jit::run_dynasm(END);
+    jit::run_dynasm(END).unwrap();
     // interpreter::run(START);
     // let mut buf = String::new();
     // io::stdin().read_line(&mut buf).unwrap();
@@ -88,7 +101,7 @@ mod test {
     // Credit goes to Daniel B Cristofani (cristofdathevanetdotcom).
     use super::*;
     use {
-        // TODO: Replace this with https://github.com/rust-lang/rust/issues/29594?
+        // FIXME: Replace this with https://github.com/rust-lang/rust/issues/29594?
         state::LocalStorage,
         std::{cell::RefCell, collections::VecDeque},
     };

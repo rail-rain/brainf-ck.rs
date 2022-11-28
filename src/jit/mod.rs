@@ -2,37 +2,59 @@ mod dynasm;
 // mod plain;
 
 use crate::Error;
-use std::mem;
+use std::{io, mem};
 
-// Currently, this is not handling panicking, and it's probably technically an UB.
-// Since brainf*ck has not way to handle exceptions, "sysv64-unwind" may be the best.
-// https://github.com/rust-lang/rust/issues/74990
-pub unsafe extern "sysv64" fn putchar(byte: *const u8) {
-    crate::putchar(unsafe { &*byte })
+/// A wrapper around [`crate::putchar`] to for the JIT to call.
+/// Writes the value pointed by `byte` into the output.
+/// ## Error
+/// This returns 0 if the output failed and stores the details in `errorno`.
+/// ## Safety
+/// The caller must ensure `byte` is safe to dereference.
+pub unsafe extern "sysv64" fn putchar(byte: *const u8) -> u8 {
+    // Catch panicking as it is UB to unwind from Rust into a foreign language.
+    // "sysv64-unwind" may be a better alternative.
+    // https://github.com/rust-lang/rust/issues/74990
+    std::panic::catch_unwind(||
+        // It is the caller's responsibility to ensure `byte` is a valid pointer.
+        crate::putchar(unsafe { &*byte }).is_ok() as u8)
+    .unwrap_or(0) // The caller cannot know why this panicked, but it's unlikely to happen anyway.
 }
 
-// Currently, this is not handling panicking, and it's probably technically an UB.
-// Since brainf*ck has not way to handle exceptions, "sysv64-unwind" may be the best.
-// https://github.com/rust-lang/rust/issues/74990
-pub unsafe extern "sysv64" fn getchar(byte: *mut u8) {
-    crate::getchar(unsafe { &mut *byte })
+/// A wrapper around [`crate::getchar`] to for the JIT to call.
+/// Reads a value from the input into the memory pointed by `byte`.
+/// ## Error
+/// This returns 0 if the output failed and stores the details in `errorno`.
+/// ## Safety
+/// The caller must ensure `byte` is safe to dereference.
+pub unsafe extern "sysv64" fn getchar(byte: *mut u8) -> u8 {
+    // Catch panicking as it is UB to unwind from Rust into a foreign language.
+    // "sysv64-unwind" may be a better alternative.
+    // https://github.com/rust-lang/rust/issues/74990
+    std::panic::catch_unwind(||
+        // It is the caller's responsibility to ensure `byte` is a valid pointer.
+        crate::getchar(unsafe { &mut *byte }).is_ok() as u8)
+    .unwrap_or(0) // The caller cannot know why this panicked, but it's unlikely to happen anyway.
 }
 
-fn run_inner(opcode: &[u8]) {
+fn run_inner(opcode: &[u8]) -> io::Result<()> {
     // The safety depends on the correctness of the compilers. How dangerous.
-    // Executing this is `unsafe` because it segfaults with out of bound indexing.
-    let execute: unsafe extern "sysv64" fn(*mut u8) = unsafe { mem::transmute(opcode.as_ptr()) };
+    // Safety: it must be safe to access the given pointer up to it plus 2^16.
+    let execute: unsafe extern "sysv64" fn(*mut u8) -> u8 =
+        unsafe { mem::transmute(opcode.as_ptr()) };
 
-    // Create an array of bytes followed by a guard page where `array.len() + guard.len() == u16::MAX + 1`
+    // Create an array of bytes followed by a guard page where `array.len() + guard.len() == u32::MAX + 1`
     // This way, the Brainf*ck programme can only access the array.
     // That's provided that the value used to index the array is 16 bit.
-    let array = MmapWithGuard::new(30_000, u16::MAX as usize + 1).unwrap();
-    unsafe { execute(array.ptr()) };
+    let mut array = vec![0u8; u16::MAX as usize + 1].into_boxed_slice();
+    if unsafe { execute(array.as_mut_ptr()) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 pub fn run_dynasm(program: &[u8]) -> Result<(), Error> {
-    run_inner(&dynasm::compile(program)?);
-    Ok(())
+    run_inner(&dynasm::compile(program)?).map_err(|e| e.into())
 }
 
 // pub fn run_plain(program: &[u8]) -> Result<(), Error> {
@@ -44,7 +66,7 @@ mod mmap {
     use nix::sys::mman;
 
     /// A struct that represents a `mmap`ped region of memory.
-    /// From `self.ptr` to `self.ptr + accesible_len` is readable and writable.
+    /// From `self.ptr` to at least `self.ptr + accesible_len` is readable and writable.
     /// Afterwords, there's a guard memory until `self.ptr + mapped_len`.
     #[derive(Debug)]
     pub struct MmapWithGuard {

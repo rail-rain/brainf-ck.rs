@@ -80,8 +80,8 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
             },
             Ins::IncCell { amount } => array[pointer] = array[pointer].overflowing_add(*amount).0,
             Ins::DecCell { amount } => array[pointer] = array[pointer].overflowing_sub(*amount).0,
-            Ins::Output => putchar(&array[pointer]),
-            Ins::Input => getchar(&mut array[pointer]),
+            Ins::Output => putchar(&array[pointer])?,
+            Ins::Input => getchar(&mut array[pointer])?,
             Ins::JmpFwd { to } => {
                 if array[pointer] == 0 {
                     pos = *to;
