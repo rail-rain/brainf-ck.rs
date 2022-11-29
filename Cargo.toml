@@ -11,7 +11,7 @@ memmap2 = "0.5"
 dynasm = "1"
 dynasmrt = "1"
 thiserror = "1.0.34"
-nix = { version = "0.25.0", default-features = false, features = ["mman"] }
+
 
 [dev-dependencies]
 state = { version = "0.5.3", features = ["tls"] }

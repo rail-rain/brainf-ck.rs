@@ -199,37 +199,20 @@ mod test {
         should be the array size minus one.
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
-        static START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
-        static END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
+        static _START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
+        static _END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
 
-        fn test_start(run: fn(&[u8]) -> Result<(), Error>) {
-            run(START).unwrap();
-            dbg!(OUT.get().borrow());
-            assert_eq!(OUT.get().borrow().len(), 0);
-        }
-        // Only interpreter passes this test. Running jits with this cause the entire test suite to crash.
-        // The behaviour in this situation is probably undefined, the current one is kind of OK.
-        //
-        // TODO: implement memory isolation because otherwise it causes UB.
-        //
-        // Address masking seems good but I have to control virtual address to give Brainfck code
-        // https://www.cse.psu.edu/~gxt29/papers/sfi-final.pdf
-        //
-        // https://hacks.mozilla.org/2021/12/webassembly-and-back-again-fine-grained-sandboxing-in-firefox-95/
-        // According to the documentation, Wasmtime has both guard page and bound checking.
-        // guard page is made using PROT_NONE.
-        // https://github.com/bytecodealliance/wasmtime/tree/main/crates/
-        // Wasmtime puts enough guard pages so that 32-bit wasm cannot access outside of it.
-        // Index the tape everytime and make sure the index variable is 32 or 16 bit to fit within the guard page.
-        test_start(interpreter::run);
-        // run_tests(test_start);
+        // Our engine wraps around the pointer when it's out of bound. As a result, the original tests don't work.
+        // This modified version below outputs '!' until it wraps around. Then, it goes back by one and outputs.
+        // It should output 2^16 '!'s with '"' (the start) and '!' (the end) following.
+        static PROGRAM: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.----------------------------------]<.";
 
-        fn test_end(run: fn(&[u8]) -> Result<(), Error>) {
-            run(END).unwrap();
-            assert_eq!(OUT.get().borrow().len(), 30_000 - 1);
+        fn test(run: fn(&[u8]) -> Result<(), Error>) {
+            run(PROGRAM).unwrap();
+            assert_eq!(OUT.get().borrow().len(), u16::MAX as usize + 2);
         }
-        test_end(interpreter::run);
-        // run_tests(test_end);
+        run_tests(test);
+
     }
 
     #[test]
