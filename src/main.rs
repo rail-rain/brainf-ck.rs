@@ -71,10 +71,12 @@ pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
     let mut reader = io::stdin();
 
     match reader.read_exact(array::from_mut(byte)) {
-        Ok(_) => if cfg!(windows) && *byte == b'\r' {
-            // We're assuming there's '\n' after '\r'. Even if there isn't, this skips '\r'.
-            // Also, we call `UnexpectedEof` an error too. Basically, anything other than "\r\n" is unexpected.
-            reader.read_exact(array::from_mut(byte))?;
+        Ok(_) => {
+            if cfg!(windows) && *byte == b'\r' {
+                // We're assuming there's '\n' after '\r'. Even if there isn't, this skips '\r'.
+                // Also, we call `UnexpectedEof` an error too. Basically, anything other than "\r\n" is unexpected.
+                reader.read_exact(array::from_mut(byte))?;
+            }
         }
         // The value of `buf` is "unspecified" when `UnexpectedEof` happens,
         // Make sure it is 0 to be consistent.
@@ -86,9 +88,9 @@ pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
 }
 
 fn main() {
-    static START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
-    static END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
-    jit::run_dynasm(END).unwrap();
+    static START: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.
+        ----------------------------------]<.";
+    jit::run_dynasm(START).unwrap();
     // interpreter::run(START);
     // let mut buf = String::new();
     // io::stdin().read_line(&mut buf).unwrap();

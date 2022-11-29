@@ -18,7 +18,7 @@ macro_rules! my_dynasm {
 }
 
 pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
-    let mut ops = dynasmrt::x64::Assembler::new().unwrap();
+    let mut ops = dynasmrt::x64::Assembler::new()?;
 
     my_dynasm!(ops
         ; push rbp
@@ -100,5 +100,5 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
         ; ret
     );
 
-    Ok(ops.finalize().unwrap())
+    Ok(ops.finalize().expect("Finalising the exec buffer failed"))
 }
