@@ -1,5 +1,7 @@
-mod dynasm;
-// mod plain;
+#[cfg(feature = "asm")]
+mod asm;
+#[cfg(feature = "machine")]
+mod machine;
 
 use crate::Error;
 use std::{io, mem};
@@ -36,7 +38,12 @@ pub unsafe extern "sysv64" fn getchar(byte: *mut u8) -> u8 {
     .unwrap_or(0) // The caller cannot know why this panicked, but it's unlikely to happen anyway.
 }
 
-fn run_inner(opcode: &[u8]) -> io::Result<()> {
+pub fn run(program: &[u8]) -> Result<(), Error> {
+    #[cfg(feature = "asm")]
+    let opcode = asm::compile(program)?;
+    #[cfg(feature = "machine")]
+    let opcode = machine::compile(program)?;
+
     // The safety depends on the correctness of the compilers. How dangerous.
     // Safety: it must be safe to access the given pointer up to it plus 2^16.
     let execute: unsafe extern "sysv64" fn(*mut u8) -> u8 =
@@ -60,17 +67,8 @@ fn run_inner(opcode: &[u8]) -> io::Result<()> {
     let result = unsafe { execute(array.as_mut_ptr()) };
 
     if result == 0 {
-        Err(io::Error::last_os_error())
+        Err(io::Error::last_os_error().into())
     } else {
         Ok(())
     }
 }
-
-pub fn run_dynasm(program: &[u8]) -> Result<(), Error> {
-    run_inner(&dynasm::compile(program)?).map_err(|e| e.into())
-}
-
-// pub fn run_plain(program: &[u8]) -> Result<(), Error> {
-//     run_inner(&plain::compile(program)?);
-//     Ok(())
-// }

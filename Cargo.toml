@@ -7,11 +7,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-memmap2 = "0.5"
-dynasm = "1"
-dynasmrt = "1"
+memmap2 = { version = "0.5", optional = true }
+dynasm = { version = "1", optional = true }
+dynasmrt = { version = "1", optional = true }
 thiserror = "1.0.34"
 
+[features]
+interpreter = []
+machine = ["memmap2"]
+asm = ["dynasm", "dynasmrt", "memmap2"]
+default = ["asm"]
 
 [dev-dependencies]
 state = { version = "0.5.3", features = ["tls"] }

@@ -1,9 +1,15 @@
 #![warn(unsafe_op_in_unsafe_fn)]
 // TODO: Do some integration tests to make sure stdin/out works.
 
+#[cfg(feature = "interpreter")]
 mod interpreter;
+#[cfg(any(feature = "asm", feature = "machine"))]
 mod jit;
 
+#[cfg(feature = "interpreter")]
+use interpreter::run;
+#[cfg(any(feature = "asm", feature = "machine"))]
+use jit::run;
 use std::{
     array,
     io::{self, Read, Write},
@@ -90,7 +96,7 @@ pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
 fn main() {
     static START: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.
         ----------------------------------]<.";
-    jit::run_dynasm(START).unwrap();
+    run(START).unwrap();
     // interpreter::run(START);
     // let mut buf = String::new();
     // io::stdin().read_line(&mut buf).unwrap();
@@ -116,29 +122,18 @@ mod test {
     // https://github.com/rust-lang/rust/issues/78812
     pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
 
-    fn run_tests(test: fn(fn(&[u8]) -> Result<(), Error>)) {
+    fn setup_mock_io() {
         OUT.set(|| RefCell::new(Vec::new()));
         IN.set(|| RefCell::new(VecDeque::new()));
         // For some reason, the result of other tests sneak in if I didn't do this.
         // That's probably because Rust's test system re-uses threads.
         // The confusing thing is that just calling `.get()` on them sometimes work.
-        clear();
+        clear_mock_io();
+    }
 
-        eprintln!("running dynasm");
-        test(jit::run_dynasm);
-        clear();
-
-        // eprintln!("running plain");
-        // test(jit::run_plain);
-        // clear();
-
-        eprintln!("running interpreter");
-        test(interpreter::run);
-
-        fn clear() {
-            IN.get().borrow_mut().clear();
-            OUT.get().borrow_mut().clear();
-        }
+    fn clear_mock_io() {
+        IN.get().borrow_mut().clear();
+        OUT.get().borrow_mut().clear();
     }
 
     #[test]
@@ -162,12 +157,13 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            IN.get().borrow_mut().write(b"\n").unwrap();
-            run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().as_slice(), b"LB\nLB\n");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        IN.get().borrow_mut().write(b"\n").unwrap();
+        run(PROGRAM).unwrap();
+        assert_eq!(OUT.get().borrow().as_slice(), b"LB\nLB\n");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -178,11 +174,12 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().as_slice(), b"#\n");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        run(PROGRAM).unwrap();
+        assert_eq!(OUT.get().borrow().as_slice(), b"#\n");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -207,14 +204,15 @@ mod test {
         // Our engine wraps around the pointer when it's out of bound. As a result, the original tests don't work.
         // This modified version below outputs '!' until it wraps around. Then, it goes back by one and outputs.
         // It should output 2^16 '!'s with '"' (the start) and '!' (the end) following.
-        static PROGRAM: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.----------------------------------]<.";
+        static PROGRAM: &[u8] =
+            b"+[>+++++++++++++++++++++++++++++++++.----------------------------------]<.";
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().len(), u16::MAX as usize + 2);
-        }
-        run_tests(test);
+        setup_mock_io();
 
+        run(PROGRAM).unwrap();
+        assert_eq!(OUT.get().borrow().len(), u16::MAX as usize + 2);
+
+        clear_mock_io();
     }
 
     #[test]
@@ -224,11 +222,12 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().as_slice(), b"H\n");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        run(PROGRAM).unwrap();
+        assert_eq!(OUT.get().borrow().as_slice(), b"H\n");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -239,11 +238,12 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
-            assert_eq!(OUT.get().borrow().as_slice(), b"");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
+        assert_eq!(OUT.get().borrow().as_slice(), b"");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -254,11 +254,12 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
-            assert_eq!(OUT.get().borrow().as_slice(), b"");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
+        assert_eq!(OUT.get().borrow().as_slice(), b"");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -269,12 +270,13 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            IN.get().borrow_mut().write_all(b"~mlk zyx").unwrap();
-            run(PROGRAM).unwrap();
-            assert_eq!(OUT.get().borrow().as_slice(), b"~zyx mlk");
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        IN.get().borrow_mut().write_all(b"~mlk zyx").unwrap();
+        run(PROGRAM).unwrap();
+        assert_eq!(OUT.get().borrow().as_slice(), b"~zyx mlk");
+
+        clear_mock_io();
     }
 
     #[test]
@@ -285,14 +287,15 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        fn test(run: fn(&[u8]) -> Result<(), Error>) {
-            IN.get().borrow_mut().write_all(b"128.42-(171)").unwrap();
-            run(PROGRAM).unwrap();
-            assert_eq!(
-                OUT.get().borrow().as_slice(),
-                include_bytes!("./numwarp.stdout")
-            );
-        }
-        run_tests(test);
+        setup_mock_io();
+
+        IN.get().borrow_mut().write_all(b"128.42-(171)").unwrap();
+        run(PROGRAM).unwrap();
+        assert_eq!(
+            OUT.get().borrow().as_slice(),
+            include_bytes!("./numwarp.stdout")
+        );
+
+        clear_mock_io();
     }
 }
