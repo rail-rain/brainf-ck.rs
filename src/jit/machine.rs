@@ -167,7 +167,7 @@ pub fn compile(program: &[u8]) -> Result<Mmap, Error> {
     ]);
 
     // The use of `mmap` is neccessary as POSIX defines `mprotect` only for `mmap`.
-    let mut opcode = MmapMut::map_anon(writer.len()).unwrap();
+    let mut opcode = MmapMut::map_anon(writer.len())?;
     opcode.copy_from_slice(&writer);
-    Ok(opcode.make_exec().unwrap())
+    Ok(opcode.make_exec()?)
 }

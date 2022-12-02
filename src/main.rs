@@ -137,7 +137,7 @@ mod test {
     }
 
     #[test]
-    fn io() {
+    fn io() -> Result<(), Error> {
         static PROGRAM: &[u8] = b">,>+++++++++,>+++++++++++[<++++++<++++++<+>>>-]<<.>.<<-.>.>.<<.";
         /* "This is for testing i/o; give it a return followed by an EOF. (Try it both
         with file input--a file consisting only of one blank line--and with
@@ -159,15 +159,16 @@ mod test {
 
         setup_mock_io();
 
-        IN.get().borrow_mut().write(b"\n").unwrap();
-        run(PROGRAM).unwrap();
+        IN.get().borrow_mut().extend(b"\n");
+        run(PROGRAM)?;
         assert_eq!(OUT.get().borrow().as_slice(), b"LB\nLB\n");
 
         clear_mock_io();
+        Ok(())
     }
 
     #[test]
-    fn array_size() {
+    fn array_size() -> Result<(), Error> {
         static PROGRAM: &[u8] = b"++++[>++++++<-]>[>+++++>+++++++<<-]>>++++<[[>[[>>+<<-]<]>>>-]>-[>+>+<<-]>]+++++[>+++++++<<++>-]>.<<.";
         /* "Goes to cell 30000 and reports from there with a #. (Verifies that the
         array is big enough.)
@@ -176,14 +177,15 @@ mod test {
 
         setup_mock_io();
 
-        run(PROGRAM).unwrap();
+        run(PROGRAM)?;
         assert_eq!(OUT.get().borrow().as_slice(), b"#\n");
 
         clear_mock_io();
+        Ok(())
     }
 
     #[test]
-    fn bound_check() {
+    fn bound_check() -> Result<(), Error> {
         /* "These next two test the array bounds checking. Bounds checking is not
         essential, and in a high-level implementation it is likely to introduce
         extra overhead. In a low-level implementation you can get bounds checking
@@ -209,14 +211,15 @@ mod test {
 
         setup_mock_io();
 
-        run(PROGRAM).unwrap();
+        run(PROGRAM)?;
         assert_eq!(OUT.get().borrow().len(), u16::MAX as usize + 2);
 
         clear_mock_io();
+        Ok(())
     }
 
     #[test]
-    fn obscure() {
+    fn obscure() -> Result<(), Error> {
         static PROGRAM: &[u8] = br#"[]++++++++++[>>+>+>++++++[<<+<+++>>>-]<<<<-]"A*$";?@![#>>+<<]>[>>]<<<<[>++<[-]]>.>."#;
         /* "Tests for several obscure problems. Should output an H.
         Daniel B Cristofani (cristofdathevanetdotcom)"
@@ -224,10 +227,11 @@ mod test {
 
         setup_mock_io();
 
-        run(PROGRAM).unwrap();
+        run(PROGRAM)?;
         assert_eq!(OUT.get().borrow().as_slice(), b"H\n");
 
         clear_mock_io();
+        Ok(())
     }
 
     #[test]
@@ -263,7 +267,7 @@ mod test {
     }
 
     #[test]
-    fn rot13() {
+    fn rot13() -> Result<(), Error> {
         static PROGRAM: &[u8] = include_bytes!("./rot13.b");
         /* "My pathological program rot13.b is good for testing the response to deep
         brackets; the input "~mlk zyx" should produce the output "~zyx mlk"."
@@ -272,15 +276,16 @@ mod test {
 
         setup_mock_io();
 
-        IN.get().borrow_mut().write_all(b"~mlk zyx").unwrap();
-        run(PROGRAM).unwrap();
+        IN.get().borrow_mut().extend(b"~mlk zyx");
+        run(PROGRAM)?;
         assert_eq!(OUT.get().borrow().as_slice(), b"~zyx mlk");
 
         clear_mock_io();
+        Ok(())
     }
 
     #[test]
-    fn numwarp() {
+    fn numwarp() -> Result<(), Error> {
         static PROGRAM: &[u8] = include_bytes!("./numwarp.b");
         /* "For an overall stress test, and also to check whether the output is
         monospaced as it ideally should be, I would run numwarp.b."
@@ -289,13 +294,14 @@ mod test {
 
         setup_mock_io();
 
-        IN.get().borrow_mut().write_all(b"128.42-(171)").unwrap();
-        run(PROGRAM).unwrap();
+        IN.get().borrow_mut().extend(b"128.42-(171)");
+        run(PROGRAM)?;
         assert_eq!(
             OUT.get().borrow().as_slice(),
             include_bytes!("./numwarp.stdout")
         );
 
         clear_mock_io();
+        Ok(())
     }
 }

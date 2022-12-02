@@ -53,7 +53,7 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
     // This way, the Brainf*ck programme can only access regions inside the array.
     // That's provided that the value used to index the array is 16 bit.
     // There's a better way that wastes no memory, but it is too hard to do correctly.
-    
+
     // Address masking seems good but I have to control virtual address to give Brainf*ck code.
     // https://www.cse.psu.edu/~gxt29/papers/sfi-final.pdf
     // https://hacks.mozilla.org/2021/12/webassembly-and-back-again-fine-grained-sandboxing-in-firefox-95/
