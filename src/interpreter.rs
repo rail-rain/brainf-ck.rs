@@ -10,6 +10,7 @@ enum Ins {
     Input,
     JmpFwd { to: usize },
     JmpBwd { to: usize },
+    End,
 }
 
 fn compile(program: &[u8]) -> Result<Vec<Ins>, Error> {
@@ -51,6 +52,7 @@ fn compile(program: &[u8]) -> Result<Vec<Ins>, Error> {
     }
 
     if loops.is_empty() {
+        instructions.push(Ins::End);
         Ok(instructions)
     } else {
         Err(Error::UnmatchedLeft)
@@ -63,10 +65,17 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
 
     let instructions = compile(program)?;
 
-    let mut pos = 0;
-    while let Some(&i) = instructions.get(pos) {
-        pos += 1;
-        match i {
+    let mut programming_counter = 0;
+    // LLVM is likely to optimise this style of `loop { match {} }`.
+    loop {
+        // The programming counter should always be in-bounds as
+        // it increments by one, there's `Ins::End` at the end of the list
+        // and `Ins::JmpFwd/Bwd { to }` is in-bounds.
+        // FIXME: introduce a proptester, verifier or fuzzer to find an UB here.
+        // With `proptest`, I'm not sure what to do with inputs that cause infinite loop.
+        let ins = *unsafe { instructions.get_unchecked(programming_counter) };
+        programming_counter += 1;
+        match ins {
             Ins::IncPtr { amount } => pointer = pointer.wrapping_add(amount),
             Ins::DecPtr { amount } => pointer = pointer.wrapping_sub(amount),
             Ins::IncCell { amount } => {
@@ -79,14 +88,15 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
             Ins::Input => getchar(&mut array[pointer as usize])?,
             Ins::JmpFwd { to } => {
                 if array[pointer as usize] == 0 {
-                    pos = to;
+                    programming_counter = to;
                 }
             }
             Ins::JmpBwd { to } => {
                 if array[pointer as usize] != 0 {
-                    pos = to;
+                    programming_counter = to;
                 }
             }
+            Ins::End => break,
         }
     }
 
