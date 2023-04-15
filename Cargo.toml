@@ -16,7 +16,4 @@ thiserror = "1.0.34"
 interpreter = []
 machine = ["memmap2"]
 asm = ["dynasm", "dynasmrt", "memmap2"]
-default = ["asm"]
-
-[dev-dependencies]
-state = { version = "0.5.3", features = ["tls"] }
+default = ["interpreter"]

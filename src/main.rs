@@ -51,46 +51,49 @@ pub enum Error {
 #[inline(always)]
 pub(crate) fn putchar(byte: &u8) -> io::Result<()> {
     #[cfg(test)]
-    let mut writer = test::OUT.get().borrow_mut();
-    // FIXME: use raw stdin? I don't need line-buffering here.
-    // See https://github.com/rust-lang/rust/issues/58326
+    return test::OUT.with(|writer| inner(&mut *writer.borrow_mut(), byte));
     #[cfg(not(test))]
-    let mut writer = io::stdout();
-
-    if cfg!(windows) && *byte == b'\n' {
-        writer.write_all(&[b'\r', b'\n'])?;
-    } else {
-        writer.write_all(array::from_ref(byte))?;
+    {
+        let mut writer = io::stdout();
+        inner(&mut writer, byte)?;
+        return writer.flush();
     }
 
-    #[cfg(not(test))]
-    writer.flush()?;
-
-    Ok(())
+    fn inner(writer: &mut impl Write, byte: &u8) -> io::Result<()> {
+        if cfg!(windows) && *byte == b'\n' {
+            writer.write_all(&[b'\r', b'\n'])
+        } else {
+            writer.write_all(array::from_ref(byte))
+        }
+    }
 }
 
 #[inline(always)]
 pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
     #[cfg(test)]
-    let mut reader = test::IN.get().borrow_mut();
+    return test::IN.with(|reader| inner(&mut *reader.borrow_mut(), byte));
     #[cfg(not(test))]
-    let mut reader = io::stdin();
+    return inner(&mut io::stdin(), byte);
 
-    match reader.read_exact(array::from_mut(byte)) {
-        Ok(_) => {
-            if cfg!(windows) && *byte == b'\r' {
-                // We're assuming there's '\n' after '\r'. Even if there isn't, this skips '\r'.
-                // Also, we call `UnexpectedEof` an error too. Basically, anything other than "\r\n" is unexpected.
-                reader.read_exact(array::from_mut(byte))?;
+    fn inner(reader: &mut impl Read, byte: &mut u8) -> io::Result<()> {
+        let res = reader.read_exact(array::from_mut(byte));
+
+        match res {
+            Ok(_) => {
+                if cfg!(windows) && *byte == b'\r' {
+                    // We're assuming there's '\n' after '\r'. Even if there isn't, this skips '\r'.
+                    // Also, we call `UnexpectedEof` an error too. Basically, anything other than "\r\n" is unexpected.
+                    reader.read_exact(array::from_mut(byte))?;
+                }
             }
-        }
-        // The value of `buf` is "unspecified" when `UnexpectedEof` happens,
-        // Make sure it is 0 to be consistent.
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => *byte = 0,
-        r @ Err(_) => return r,
-    };
+            // The value of `buf` is "unspecified" when `UnexpectedEof` happens,
+            // Make sure it is 0 to be consistent.
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => *byte = 0,
+            r @ Err(_) => return r,
+        };
 
-    Ok(())
+        Ok(())
+    }
 }
 
 fn main() {
@@ -105,35 +108,14 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    // The tests under this mod is adapted from http://brainfuck.org/tests.b one by one.
+    // The tests under this module is adapted from http://brainfuck.org/tests.b one by one.
     // Credit goes to Daniel B Cristofani (cristofdathevanetdotcom).
     use super::*;
-    use {
-        // FIXME: Replace this with https://github.com/rust-lang/rust/issues/29594?
-        state::LocalStorage,
-        std::{cell::RefCell, collections::VecDeque},
-    };
+    use std::{cell::RefCell, collections::VecDeque};
 
-    pub(crate) static OUT: LocalStorage<RefCell<Vec<u8>>> = LocalStorage::new();
-
-    // Keep in mind when converting this to #[thread_local] attribute that
-    // `VecDequeue` or Curosr<Vec<u8>> fits better for `IN`, but their `new`s are not const.
-    // See https://github.com/rust-lang/rust/issues/99805 and 68990
-    // https://github.com/rust-lang/rust/issues/78812
-    pub(crate) static IN: LocalStorage<RefCell<VecDeque<u8>>> = LocalStorage::new();
-
-    fn setup_mock_io() {
-        OUT.set(|| RefCell::new(Vec::new()));
-        IN.set(|| RefCell::new(VecDeque::new()));
-        // For some reason, the result of other tests sneak in if I didn't do this.
-        // That's probably because Rust's test system re-uses threads.
-        // The confusing thing is that just calling `.get()` on them sometimes work.
-        clear_mock_io();
-    }
-
-    fn clear_mock_io() {
-        IN.get().borrow_mut().clear();
-        OUT.get().borrow_mut().clear();
+    thread_local! {
+        pub static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        pub static IN: RefCell<VecDeque<u8>> = RefCell::new(VecDeque::new());
     }
 
     #[test]
@@ -157,13 +139,10 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
-        IN.get().borrow_mut().extend(b"\n");
+        IN.with(|input| input.borrow_mut().extend(b"\n"));
         run(PROGRAM)?;
-        assert_eq!(OUT.get().borrow().as_slice(), b"LB\nLB\n");
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"LB\nLB\n"));
 
-        clear_mock_io();
         Ok(())
     }
 
@@ -175,12 +154,9 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
         run(PROGRAM)?;
-        assert_eq!(OUT.get().borrow().as_slice(), b"#\n");
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"#\n"));
 
-        clear_mock_io();
         Ok(())
     }
 
@@ -209,12 +185,9 @@ mod test {
         static PROGRAM: &[u8] =
             b"+[>+++++++++++++++++++++++++++++++++.----------------------------------]<.";
 
-        setup_mock_io();
-
         run(PROGRAM)?;
-        assert_eq!(OUT.get().borrow().len(), u16::MAX as usize + 2);
+        OUT.with(|output| assert_eq!(output.borrow().len(), u16::MAX as usize + 2));
 
-        clear_mock_io();
         Ok(())
     }
 
@@ -225,12 +198,9 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
         run(PROGRAM)?;
-        assert_eq!(OUT.get().borrow().as_slice(), b"H\n");
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"H\n"));
 
-        clear_mock_io();
         Ok(())
     }
 
@@ -242,12 +212,8 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
         assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
-        assert_eq!(OUT.get().borrow().as_slice(), b"");
-
-        clear_mock_io();
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
     }
 
     #[test]
@@ -258,12 +224,8 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
         assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
-        assert_eq!(OUT.get().borrow().as_slice(), b"");
-
-        clear_mock_io();
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
     }
 
     #[test]
@@ -274,13 +236,10 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
-        IN.get().borrow_mut().extend(b"~mlk zyx");
+        IN.with(|input| input.borrow_mut().extend(b"~mlk zyx"));
         run(PROGRAM)?;
-        assert_eq!(OUT.get().borrow().as_slice(), b"~zyx mlk");
+        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"~zyx mlk"));
 
-        clear_mock_io();
         Ok(())
     }
 
@@ -292,16 +251,15 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        setup_mock_io();
-
-        IN.get().borrow_mut().extend(b"128.42-(171)");
+        IN.with(|input| input.borrow_mut().extend(b"128.42-(171)"));
         run(PROGRAM)?;
-        assert_eq!(
-            OUT.get().borrow().as_slice(),
-            include_bytes!("./numwarp.stdout")
-        );
+        OUT.with(|output| {
+            assert_eq!(
+                output.borrow().as_slice(),
+                include_bytes!("./numwarp.stdout")
+            )
+        });
 
-        clear_mock_io();
         Ok(())
     }
 }
