@@ -66,7 +66,6 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
     let instructions = compile(program)?;
 
     let mut programming_counter = 0;
-    // LLVM is likely to optimise this style of `loop { match {} }`.
     loop {
         // The programming counter should always be in-bounds as
         // it increments by one, there's `Ins::End` at the end of the list

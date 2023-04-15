@@ -14,7 +14,7 @@ pub fn compile(program: &[u8]) -> Result<Mmap, Error> {
 
     // The signature of compiled routine is `fn(*mut u8)`.
     // Since it uses sysv64 calling convention, `rdi` stores the argument.
-    // I use that register to store the pointer to the buffer throughtout.
+    // Use that register to store the pointer to the buffer throughtout.
 
     // Write sysv64's minimum prelude.
     // This preserves the 64-bit base pointer and stack pointer.
