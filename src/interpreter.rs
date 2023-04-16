@@ -70,8 +70,7 @@ pub fn run(program: &[u8]) -> Result<(), Error> {
         // The programming counter should always be in-bounds as
         // it increments by one, there's `Ins::End` at the end of the list
         // and `Ins::JmpFwd/Bwd { to }` is in-bounds.
-        // FIXME: introduce a proptester, verifier or fuzzer to find an UB here.
-        // With `proptest`, I'm not sure what to do with inputs that cause infinite loop.
+        // TODO: introduce a fuzzer to find an UB here as well as the JIT version.
         let ins = *unsafe { instructions.get_unchecked(programming_counter) };
         programming_counter += 1;
         match ins {

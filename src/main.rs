@@ -1,5 +1,4 @@
 #![warn(unsafe_op_in_unsafe_fn)]
-// TODO: Do some integration tests to make sure stdin/out works.
 
 #[cfg(feature = "interpreter")]
 mod interpreter;
