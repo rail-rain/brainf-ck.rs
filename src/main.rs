@@ -48,6 +48,11 @@ pub enum Error {
     Io(#[from] io::Error),
 }
 
+/// Writes `byte` into the stdout.
+/// A few advantages of this over directly using `libstd`:
+/// 
+/// - a more convinient API to write only one byte.
+/// - converting "\n" to "\r\n" in Windows.
 #[inline(always)]
 pub(crate) fn putchar(byte: &u8) -> io::Result<()> {
     #[cfg(test)]
@@ -68,6 +73,11 @@ pub(crate) fn putchar(byte: &u8) -> io::Result<()> {
     }
 }
 
+/// Reads one byte from the stdin and writes it to `byte`.
+/// A few advantages of this over directly using `libstd`:
+/// 
+/// - a more convinient API to read only one byte.
+/// - skipping "\r" in Windows to make "\n" a single newline sequence.
 #[inline(always)]
 pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
     #[cfg(test)]
