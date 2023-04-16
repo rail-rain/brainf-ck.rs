@@ -151,8 +151,12 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    // The tests under this module is adapted from http://brainfuck.org/tests.b one by one.
-    // Credit goes to Daniel B Cristofani (cristofdathevanetdotcom).
+    // All of the test cases under this module are adapted from http://brainfuck.org/tests.b
+    // by [Daniel B Cristofani](1) (cristofdathevanetdotcom), under [CC BY-SA 4.0](2).
+    // The adapted cases are all in the arrays at the start of each test cases, followed by the author's comment.
+    //
+    // [1]: http://www.hevanet.com/cristofd/brainfuck/
+    // [2]: https://creativecommons.org/licenses/by-sa/4.0/
     use super::*;
     use std::{cell::RefCell, collections::VecDeque};
 
@@ -218,6 +222,8 @@ mod test {
 
     #[test]
     fn bound_check() {
+        static _START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
+        static _END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
         /* "These next two test the array bounds checking. Bounds checking is not
         essential, and in a high-level implementation it is likely to introduce
         extra overhead. In a low-level implementation you can get bounds checking
@@ -232,8 +238,6 @@ mod test {
         should be the array size minus one.
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
-        static _START: &[u8] = b"+[<+++++++++++++++++++++++++++++++++.]";
-        static _END: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.]";
 
         // Our engine wraps around the pointer when it's out of bound. As a result, the original tests don't work.
         // This modified version below outputs '!' until it wraps around. Then, it goes back by one and outputs.
