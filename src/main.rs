@@ -24,9 +24,7 @@ impl Consumer for std::slice::Iter<'_, u8> {
     #[inline(always)]
     fn consume_while(&mut self, target: u8) -> usize {
         // Calculate the span of continuous copies of the target.
-        let mut clone = self.clone();
-        while clone.next().copied() == Some(target) {}
-        let span = (self.len() - clone.len()).saturating_sub(1);
+        let span = self.clone().take_while(|c| **c == target).count();
 
         // FIXME: unstable `Iterator::advance_by` is better.
         // Need https://github.com/rust-lang/rust/issues/77404
