@@ -1,7 +1,7 @@
 #[cfg(feature = "asm")]
-mod asm;
+pub mod asm;
 #[cfg(feature = "machine")]
-mod machine;
+pub mod machine;
 
 use crate::Error;
 use std::{io, mem};
@@ -38,12 +38,7 @@ pub unsafe extern "sysv64" fn getchar(byte: *mut u8) -> u8 {
     .unwrap_or(0) // The caller cannot know why this panicked, but it's unlikely to happen anyway.
 }
 
-pub fn run(program: &[u8]) -> Result<(), Error> {
-    #[cfg(feature = "asm")]
-    let opcode = asm::compile(program)?;
-    #[cfg(feature = "machine")]
-    let opcode = machine::compile(program)?;
-
+fn run_opcode(opcode: &[u8]) -> Result<(), Error> {
     // The safety depends on the correctness of the compilers. How dangerous.
     // Safety: it must be safe to access the given pointer up to it plus 2^16.
     let execute: unsafe extern "sysv64" fn(*mut u8) -> u8 =

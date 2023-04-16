@@ -6,7 +6,7 @@ use crate::{
 };
 use memmap2::{Mmap, MmapMut};
 
-pub fn compile(program: &[u8]) -> Result<Mmap, Error> {
+fn compile(program: &[u8]) -> Result<Mmap, Error> {
     // Although the length of `program` include comments, it is still a good indicator.
     let mut writer = Vec::with_capacity(program.len());
     let mut loops = Vec::new();
@@ -170,4 +170,9 @@ pub fn compile(program: &[u8]) -> Result<Mmap, Error> {
     let mut opcode = MmapMut::map_anon(writer.len())?;
     opcode.copy_from_slice(&writer);
     Ok(opcode.make_exec()?)
+}
+
+pub fn run(program: &[u8]) -> Result<(), Error> {
+    let opcode = compile(program)?;
+    super::run_opcode(opcode.as_ref())
 }

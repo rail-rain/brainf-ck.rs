@@ -6,13 +6,11 @@ mod interpreter;
 #[cfg(any(feature = "asm", feature = "machine"))]
 mod jit;
 
-#[cfg(feature = "interpreter")]
-use interpreter::run;
-#[cfg(any(feature = "asm", feature = "machine"))]
-use jit::run;
+use argh::FromArgs;
 use std::{
     array,
     io::{self, Read, Write},
+    str::FromStr,
 };
 use thiserror::Error;
 
@@ -48,7 +46,7 @@ pub enum Error {
 
 /// Writes `byte` into the stdout.
 /// A few advantages of this over directly using `libstd`:
-/// 
+///
 /// - a more convinient API to write only one byte.
 /// - converting "\n" to "\r\n" in Windows.
 #[inline(always)]
@@ -73,7 +71,7 @@ pub(crate) fn putchar(byte: &u8) -> io::Result<()> {
 
 /// Reads one byte from the stdin and writes it to `byte`.
 /// A few advantages of this over directly using `libstd`:
-/// 
+///
 /// - a more convinient API to read only one byte.
 /// - skipping "\r" in Windows to make "\n" a single newline sequence.
 #[inline(always)]
@@ -104,14 +102,52 @@ pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
     }
 }
 
+enum EngineType {
+    Interpreter,
+    Machine,
+    Asm,
+}
+
+impl FromStr for EngineType {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, &'static str> {
+        match s {
+            "interpreter" => Ok(Self::Interpreter),
+            "machine" => Ok(Self::Machine),
+            "asm" => Ok(Self::Asm),
+            _ => Err("Invalid engine type"),
+        }
+    }
+}
+
+#[derive(FromArgs)]
+/// A brainf*ck language compiler and interpreter
+struct BrainFck {
+    /// a brainf*ck source file to run
+    #[argh(positional)]
+    filename: String,
+
+    /// an engine type: either "interpreter", "machine" or "asm"
+    #[argh(option)]
+    engine: EngineType,
+}
+
 fn main() {
-    static START: &[u8] = b"+[>+++++++++++++++++++++++++++++++++.
-        ----------------------------------]<.";
-    run(START).unwrap();
-    // interpreter::run(START);
-    // let mut buf = String::new();
-    // io::stdin().read_line(&mut buf).unwrap();
-    // interpreter::run(buf.as_bytes(), io::stdout(), io::stdin()).unwrap();
+    let BrainFck { filename, engine } = argh::from_env();
+    let Ok(program) = std::fs::read(filename) else {
+        eprintln!("io-error while reading the file");
+        return;
+    };
+
+    let res = match engine {
+        EngineType::Interpreter => interpreter::run(&program),
+        EngineType::Machine => jit::machine::run(&program),
+        EngineType::Asm => jit::asm::run(&program),
+    };
+    if let Err(e) = res {
+        eprintln!("{}", e);
+    }
 }
 
 #[cfg(test)]
@@ -126,8 +162,21 @@ mod test {
         pub static IN: RefCell<VecDeque<u8>> = RefCell::new(VecDeque::new());
     }
 
+    fn run_tests(test: fn(fn(&[u8]) -> Result<(), Error>)) {
+        test(interpreter::run);
+        clear();
+        test(jit::machine::run);
+        clear();
+        test(jit::asm::run);
+
+        fn clear() {
+            OUT.with(|o| o.borrow_mut().clear());
+            IN.with(|i| i.borrow_mut().clear());
+        }
+    }
+
     #[test]
-    fn io() -> Result<(), Error> {
+    fn io() {
         static PROGRAM: &[u8] = b">,>+++++++++,>+++++++++++[<++++++<++++++<+>>>-]<<.>.<<-.>.>.<<.";
         /* "This is for testing i/o; give it a return followed by an EOF. (Try it both
         with file input--a file consisting only of one blank line--and with
@@ -147,29 +196,29 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        IN.with(|input| input.borrow_mut().extend(b"\n"));
-        run(PROGRAM)?;
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"LB\nLB\n"));
-
-        Ok(())
+        run_tests(|run| {
+            IN.with(|input| input.borrow_mut().extend(b"\n"));
+            run(PROGRAM).unwrap();
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"LB\nLB\n"));
+        });
     }
 
     #[test]
-    fn array_size() -> Result<(), Error> {
+    fn array_size() {
         static PROGRAM: &[u8] = b"++++[>++++++<-]>[>+++++>+++++++<<-]>>++++<[[>[[>>+<<-]<]>>>-]>-[>+>+<<-]>]+++++[>+++++++<<++>-]>.<<.";
         /* "Goes to cell 30000 and reports from there with a #. (Verifies that the
         array is big enough.)
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        run(PROGRAM)?;
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"#\n"));
-
-        Ok(())
+        run_tests(|run| {
+            run(PROGRAM).unwrap();
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"#\n"));
+        });
     }
 
     #[test]
-    fn bound_check() -> Result<(), Error> {
+    fn bound_check() {
         /* "These next two test the array bounds checking. Bounds checking is not
         essential, and in a high-level implementation it is likely to introduce
         extra overhead. In a low-level implementation you can get bounds checking
@@ -193,23 +242,23 @@ mod test {
         static PROGRAM: &[u8] =
             b"+[>+++++++++++++++++++++++++++++++++.----------------------------------]<.";
 
-        run(PROGRAM)?;
-        OUT.with(|output| assert_eq!(output.borrow().len(), u16::MAX as usize + 2));
-
-        Ok(())
+        run_tests(|run| {
+            run(PROGRAM).unwrap();
+            OUT.with(|output| assert_eq!(output.borrow().len(), u16::MAX as usize + 2));
+        });
     }
 
     #[test]
-    fn obscure() -> Result<(), Error> {
+    fn obscure() {
         static PROGRAM: &[u8] = br#"[]++++++++++[>>+>+>++++++[<<+<+++>>>-]<<<<-]"A*$";?@![#>>+<<]>[>>]<<<<[>++<[-]]>.>."#;
         /* "Tests for several obscure problems. Should output an H.
         Daniel B Cristofani (cristofdathevanetdotcom)"
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        run(PROGRAM)?;
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"H\n"));
-
-        Ok(())
+        run_tests(|run| {
+            run(PROGRAM).unwrap();
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"H\n"));
+        });
     }
 
     #[test]
@@ -220,8 +269,10 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
+        run_tests(|run| {
+            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedLeft)));
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
+        });
     }
 
     #[test]
@@ -232,42 +283,44 @@ mod test {
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
+        run_tests(|run| {
+            assert!(matches!(run(PROGRAM), Err(Error::UnmatchedRight)));
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b""));
+        });
     }
 
     #[test]
-    fn rot13() -> Result<(), Error> {
+    fn rot13() {
         static PROGRAM: &[u8] = include_bytes!("./rot13.b");
         /* "My pathological program rot13.b is good for testing the response to deep
         brackets; the input "~mlk zyx" should produce the output "~zyx mlk"."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        IN.with(|input| input.borrow_mut().extend(b"~mlk zyx"));
-        run(PROGRAM)?;
-        OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"~zyx mlk"));
-
-        Ok(())
+        run_tests(|run| {
+            IN.with(|input| input.borrow_mut().extend(b"~mlk zyx"));
+            run(PROGRAM).unwrap();
+            OUT.with(|output| assert_eq!(output.borrow().as_slice(), b"~zyx mlk"));
+        });
     }
 
     #[test]
-    fn numwarp() -> Result<(), Error> {
+    fn numwarp() {
         static PROGRAM: &[u8] = include_bytes!("./numwarp.b");
         /* "For an overall stress test, and also to check whether the output is
         monospaced as it ideally should be, I would run numwarp.b."
         Daniel B Cristofani (cristofdathevanetdotcom)
         http://www.hevanet.com/cristofd/brainfuck/ */
 
-        IN.with(|input| input.borrow_mut().extend(b"128.42-(171)"));
-        run(PROGRAM)?;
-        OUT.with(|output| {
-            assert_eq!(
-                output.borrow().as_slice(),
-                include_bytes!("./numwarp.stdout")
-            )
+        run_tests(|run| {
+            IN.with(|input| input.borrow_mut().extend(b"128.42-(171)"));
+            run(PROGRAM).unwrap();
+            OUT.with(|output| {
+                assert_eq!(
+                    output.borrow().as_slice(),
+                    include_bytes!("./numwarp.stdout")
+                )
+            });
         });
-
-        Ok(())
     }
 }

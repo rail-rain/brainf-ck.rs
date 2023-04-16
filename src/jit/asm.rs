@@ -17,7 +17,7 @@ macro_rules! my_dynasm {
     }
 }
 
-pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
+fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     let mut ops = dynasmrt::x64::Assembler::new()?;
 
     my_dynasm!(ops
@@ -101,4 +101,9 @@ pub fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     );
 
     Ok(ops.finalize().expect("Finalising the exec buffer failed"))
+}
+
+pub fn run(program: &[u8]) -> Result<(), Error> {
+    let opcode = compile(program)?;
+    super::run_opcode(opcode.as_ref())
 }
