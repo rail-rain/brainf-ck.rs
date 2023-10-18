@@ -102,8 +102,11 @@ pub(crate) fn getchar(byte: &mut u8) -> io::Result<()> {
 }
 
 enum EngineType {
+    #[cfg(feature = "interpreter")]
     Interpreter,
+    #[cfg(feature = "machine")]
     Machine,
+    #[cfg(feature = "asm")]
     Asm,
 }
 
@@ -112,8 +115,11 @@ impl FromStr for EngineType {
 
     fn from_str(s: &str) -> Result<Self, &'static str> {
         match s {
+            #[cfg(feature = "interpreter")]
             "interpreter" => Ok(Self::Interpreter),
+            #[cfg(feature = "machine")]
             "machine" => Ok(Self::Machine),
+            #[cfg(feature = "asm")]
             "asm" => Ok(Self::Asm),
             _ => Err("Invalid engine type"),
         }
@@ -140,8 +146,11 @@ fn main() {
     };
 
     let res = match engine {
+        #[cfg(feature = "interpreter")]
         EngineType::Interpreter => interpreter::run(&program),
+        #[cfg(feature = "machine")]
         EngineType::Machine => jit::machine::run(&program),
+        #[cfg(feature = "asm")]
         EngineType::Asm => jit::asm::run(&program),
     };
     if let Err(e) = res {
