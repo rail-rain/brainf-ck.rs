@@ -1,4 +1,3 @@
-
 pub mod machine {
     use crate::Error;
     pub fn run(opcode: &[u8]) -> Result<(), Error> {
