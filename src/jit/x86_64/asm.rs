@@ -1,5 +1,3 @@
-#![cfg(target_arch = "x86_64")]
-
 use crate::{
     jit::{getchar, putchar},
     Consumer as _, Error,
