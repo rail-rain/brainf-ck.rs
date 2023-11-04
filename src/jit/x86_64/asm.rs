@@ -1,5 +1,5 @@
 use crate::{
-    jit::{getchar, putchar},
+    jit::{getchar, putchar, run_opcode},
     Consumer as _, Error,
 };
 use dynasm::dynasm;
@@ -9,7 +9,10 @@ macro_rules! my_dynasm {
     ($ops:ident $($t:tt)*) => {
         dynasm!($ops
             ; .arch x64
-            ; .alias pointer, rbx
+            ; .alias ptr, rbx
+            ; .alias idx, r12d
+            ; .alias idxq, r12
+            ; .alias idxw, r12w
             $($t)*
         )
     }
@@ -22,11 +25,11 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
         ; push rbp
         ; mov rbp, rsp
 
-        ; push pointer
-        ; push r12
-        ; mov pointer, rdi
-        ; xor r12, r12 // Set the array index to 0
-        ; mov rax, 1 // Set the initial return value to 1 in case no io happens.
+        ; push ptr
+        ; push idxq
+        ; mov ptr, rdi
+        ; xor idx, idx // Set the array index to 0
+        ; mov eax, 1 // Set the initial return value to 1 in case no io happens.
     );
 
     let mut loops = Vec::new();
@@ -35,30 +38,30 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     while let Some(&c) = iter.next() {
         match c {
             b'>' => my_dynasm!(ops
-                ; add r12d, (iter.consume_while(b'>') + 1) as _
+                ; add idx, (iter.consume_while(b'>') + 1) as _
                 // Make sure the index stays within 16 bit values for memory protection.
                 // Use zero-extension instead of writing directly to 16 bit register
                 // See https://stackoverflow.com/questions/34058101/referencing-the-contents-of-a-memory-location-x86-addressing-modes
-                ; movzx r12d, r12w
+                ; movzx idx, idxw
             ),
             b'<' => my_dynasm!(ops
-                ; sub r12d, (iter.consume_while(b'<') + 1) as _
-                ; movzx r12d, r12w
+                ; sub idx, (iter.consume_while(b'<') + 1) as _
+                ; movzx idx, idxw
             ),
-            b'+' => my_dynasm!(ops; add BYTE [pointer + r12], (iter.consume_while(b'+') + 1) as _),
-            b'-' => my_dynasm!(ops; sub BYTE [pointer + r12], (iter.consume_while(b'-') + 1) as _),
+            b'+' => my_dynasm!(ops; add BYTE [ptr + idxq], (iter.consume_while(b'+') + 1) as _),
+            b'-' => my_dynasm!(ops; sub BYTE [ptr + idxq], (iter.consume_while(b'-') + 1) as _),
             b'.' => my_dynasm!(ops
-                ; lea rdi, [pointer + r12]
+                ; lea rdi, [ptr + idxq]
                 ; mov rax, QWORD putchar as _
                 ; call rax
-                ; cmp al, 0
+                ; cmp eax, 0
                 ; jz ->throwing
             ),
             b',' => my_dynasm!(ops
-                ; lea rdi, [pointer + r12]
+                ; lea rdi, [ptr + idxq]
                 ; mov rax, QWORD getchar as _
                 ; call rax
-                ; cmp al, 0
+                ; cmp eax, 0
                 ; jz ->throwing
             ),
             b'[' => {
@@ -66,7 +69,7 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
                 let fwd_label = ops.new_dynamic_label();
                 loops.push((bwd_label, fwd_label));
                 my_dynasm!(ops
-                    ; cmp BYTE [pointer + r12], 0
+                    ; cmp BYTE [ptr + idxq], 0
                     ; jz =>fwd_label
                     ;=>bwd_label
                 )
@@ -74,7 +77,7 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
             b']' => {
                 let (bwd_label, fwd_label) = loops.pop().ok_or(Error::UnmatchedRight)?;
                 my_dynasm!(ops
-                    ; cmp BYTE [pointer + r12], 0
+                    ; cmp BYTE [ptr + idxq], 0
                     ; jnz =>bwd_label
                     ;=>fwd_label
                 )
@@ -90,8 +93,8 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
     my_dynasm!(ops
         // Keep `rax` set by `putchar` and `getchar` functions as it is for the return value.
         ;->throwing:
-        ; pop r12
-        ; pop pointer
+        ; pop idxq
+        ; pop ptr
 
         ; mov rsp, rbp
         ; pop rbp
@@ -103,5 +106,5 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
 
 pub fn run(program: &[u8]) -> Result<(), Error> {
     let opcode = compile(program)?;
-    super::run_opcode(opcode.as_ref())
+    run_opcode(opcode.as_ref())
 }

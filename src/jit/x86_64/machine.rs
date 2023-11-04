@@ -1,5 +1,5 @@
 use crate::{
-    jit::{getchar, putchar},
+    jit::{getchar, putchar, run_opcode},
     Consumer as _, Error,
 };
 use memmap2::{Mmap, MmapMut};
@@ -172,5 +172,5 @@ fn compile(program: &[u8]) -> Result<Mmap, Error> {
 
 pub fn run(program: &[u8]) -> Result<(), Error> {
     let opcode = compile(program)?;
-    super::run_opcode(opcode.as_ref())
+    run_opcode(opcode.as_ref())
 }
