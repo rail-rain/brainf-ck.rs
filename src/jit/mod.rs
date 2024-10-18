@@ -65,6 +65,7 @@ fn run_opcode(opcode: &[u8]) -> Result<(), Error> {
     // This is super hard because I had to catch SIGSEGV or SIGBUS from guarded pages and recover from it.
     // https://github.com/bytecodealliance/wasmtime/issues/15
     let mut array = vec![0u8; u16::MAX as usize + 1].into_boxed_slice();
+    debug_assert!(array.get(u16::MAX as usize).is_some());
     let result = unsafe { execute(array.as_mut_ptr()) };
 
     if result == 0 {
