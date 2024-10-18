@@ -39,6 +39,7 @@ fn compile(program: &[u8]) -> Result<ExecutableBuffer, Error> {
                 ; add idx, idx, (iter.consume_while(b'>') + 1) as u32
                 // Make sure the index stays within 16 bit values for memory protection.
                 // (There's no such thing as 16 bit registers. Zero-extension is the only way.)
+                // `add` has an option to perform `uxth`, but that's a bit different from what I'm doing.
                 ; uxth idx, idx
             ),
             b'<' => my_dynasm!(ops
